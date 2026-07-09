@@ -42,3 +42,24 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# IDEs and editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# local env files (explicitly ignored for safety)
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# OS metadata
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
