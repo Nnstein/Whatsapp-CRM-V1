@@ -13,7 +13,13 @@ import {
   MODES,
   STORAGE_KEY,
   THEME_IDS,
-} from "@/lib/themes";
+} from '@/lib/themes'
+
+// Side-effect import: starts the self-ping keep-alive timer on the
+// server so Render free tier doesn't spin down the service between
+// webhook events. Safe to import here — it guards against browser
+// execution and only runs in Node.js.
+import '@/lib/keep-alive'
 
 const inter = Inter({
   variable: "--font-sans",

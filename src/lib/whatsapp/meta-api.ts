@@ -12,6 +12,14 @@
 const META_API_VERSION = 'v21.0'
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
 
+/** Default timeout for Meta API calls. Override with META_API_TIMEOUT_MS. */
+const DEFAULT_META_TIMEOUT_MS = 10_000
+
+function metaTimeoutMs(): number {
+  const raw = Number(process.env.META_API_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_META_TIMEOUT_MS
+}
+
 export interface MetaSendResult {
   messageId: string
 }

@@ -1,7 +1,10 @@
 import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
-import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
+// downloadMedia kept for potential future use; media verification is now
+// lazy (handled by the /api/whatsapp/media proxy) to avoid blocking the
+// webhook with outbound Meta API calls.
+import { downloadMedia } from '@/lib/whatsapp/meta-api'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
@@ -15,9 +18,10 @@ import {
 } from '@/lib/whatsapp/template-webhook'
 
 // The `after()` callback in POST runs within this route's max duration.
-// Inbound processing can fan out to per-media Meta verification calls, so
-// give it headroom beyond the platform default (Vercel clamps this to the
-// plan's ceiling). Tune as needed.
+// Render free tier has generous limits (up to 100s), but we keep this
+// reasonable. The lazy media verification change removed the biggest
+// source of outbound HTTP calls, so 60s is plenty for webhook batch
+// processing including automation dispatch and AI auto-reply.
 export const maxDuration = 60
 
 // Lazy-initialized to avoid build-time crash when env vars are missing
@@ -817,7 +821,8 @@ async function processMessage(
 
 async function parseMessageContent(
   message: WhatsAppMessage,
-  accessToken: string
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _accessToken: string
 ): Promise<{
   contentText: string | null
   mediaUrl: string | null
@@ -831,23 +836,14 @@ async function parseMessageContent(
    */
   interactiveReplyId: string | null
 }> {
-  // getMediaUrl signature is (mediaId, accessToken) — earlier code had
-  // the args swapped, so every verification hit an invalid Meta URL and
-  // fell through to the catch block, leaving mediaUrl as null. That's
-  // why images showed up as empty bubbles in the inbox.
-  const verifyAndBuildUrl = async (
-    mediaId: string
-  ): Promise<string | null> => {
-    try {
-      await getMediaUrl({ mediaId, accessToken })
-      return `/api/whatsapp/media/${mediaId}`
-    } catch (error) {
-      console.error(
-        `Failed to verify media ${mediaId} with Meta:`,
-        error instanceof Error ? error.message : error
-      )
-      return null
-    }
+  // LAZY media URL: skip the synchronous Meta verification call in the
+  // webhook path. The /api/whatsapp/media/[mediaId] proxy already
+  // fetches from Meta on-demand, so verifying here is redundant and
+  // burns precious time on every inbound media message. A 404 from the
+  // proxy later is harmless — the UI just shows a broken image link.
+  const buildMediaUrl = (mediaId: string): string | null => {
+    if (!mediaId) return null
+    return `/api/whatsapp/media/${mediaId}`
   }
 
   // Default shape — each case overrides only the fields it cares about.
@@ -868,7 +864,7 @@ async function parseMessageContent(
         return {
           ...empty,
           contentText: message.image.caption || null,
-          mediaUrl: await verifyAndBuildUrl(message.image.id),
+          mediaUrl: buildMediaUrl(message.image.id),
           mediaType: message.image.mime_type,
         }
       }
@@ -879,7 +875,7 @@ async function parseMessageContent(
         return {
           ...empty,
           contentText: message.video.caption || null,
-          mediaUrl: await verifyAndBuildUrl(message.video.id),
+          mediaUrl: buildMediaUrl(message.video.id),
           mediaType: message.video.mime_type,
         }
       }
@@ -891,7 +887,7 @@ async function parseMessageContent(
           ...empty,
           contentText:
             message.document.caption || message.document.filename || null,
-          mediaUrl: await verifyAndBuildUrl(message.document.id),
+          mediaUrl: buildMediaUrl(message.document.id),
           mediaType: message.document.mime_type,
         }
       }
@@ -901,7 +897,7 @@ async function parseMessageContent(
       if (message.audio?.id) {
         return {
           ...empty,
-          mediaUrl: await verifyAndBuildUrl(message.audio.id),
+          mediaUrl: buildMediaUrl(message.audio.id),
           mediaType: message.audio.mime_type,
         }
       }
@@ -914,7 +910,7 @@ async function parseMessageContent(
       if (message.sticker?.id) {
         return {
           ...empty,
-          mediaUrl: await verifyAndBuildUrl(message.sticker.id),
+          mediaUrl: buildMediaUrl(message.sticker.id),
           mediaType: message.sticker.mime_type,
         }
       }
