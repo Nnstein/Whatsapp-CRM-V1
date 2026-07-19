@@ -1020,28 +1020,46 @@ export function MessageThread({
                     {formatDateSeparator(group.date)}
                   </span>
                 </div>
-                {group.messages.map((msg) => (
-                  <MessageBubble
-                    key={msg.id}
-                    message={msg}
-                    contactName={contactDisplayName}
-                    reactions={reactionsByMessageId.get(msg.id) ?? []}
-                    onReact={postReaction}
-                    onReply={handleStartReply}
-                    replyTo={
-                      msg.reply_to_message_id
-                        ? messagesById.get(msg.reply_to_message_id) ?? null
-                        : null
-                    }
-                    authorLabelFor={authorLabelFor}
-                    actions={
-                      <MessageActions
+                {group.messages.map((msg) => {
+                  const parent = msg.reply_to_message_id
+                    ? messagesById.get(msg.reply_to_message_id)
+                    : null;
+                  const reply = parent
+                    ? {
+                        authorLabel: authorLabelFor(parent),
+                        preview: buildReplyPreview(parent),
+                      }
+                    : null;
+                  const msgReactions = reactionsByMessageId.get(msg.id);
+                  const handlePillToggle = (emoji: string) => {
+                    const own = msgReactions?.find(
+                      (r) =>
+                        r.actor_type === "agent" &&
+                        r.actor_id === user?.id,
+                    );
+                    const next = own?.emoji === emoji ? "" : emoji;
+                    void postReaction(msg.id, next);
+                  };
+
+                  return (
+                    <MessageActions
+                      key={msg.id}
+                      message={msg}
+                      onReply={() => handleStartReply(msg)}
+                      onReact={(emoji) => {
+                        if (emoji) void postReaction(msg.id, emoji);
+                      }}
+                    >
+                      <MessageBubble
                         message={msg}
-                        onReply={() => handleStartReply(msg)}
+                        reply={reply}
+                        reactions={msgReactions}
+                        currentUserId={user?.id}
+                        onToggleReaction={handlePillToggle}
                       />
-                    }
-                  />
-                ))}
+                    </MessageActions>
+                  );
+                })}
               </div>
             ))}
           </div>
