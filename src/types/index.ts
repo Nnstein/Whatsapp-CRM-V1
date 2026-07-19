@@ -156,6 +156,8 @@ export interface Conversation {
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;
+  /** ISO timestamp when the 24h WhatsApp customer service window expires. Set by the webhook on every inbound message. */
+  window_expires_at?: string;
   created_at: string;
   updated_at: string;
   contact?: Contact;

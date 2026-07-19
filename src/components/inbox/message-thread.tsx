@@ -27,7 +27,7 @@ import {
   PanelRightOpen,
   PanelRightClose,
 } from "lucide-react";
-import { format, isToday, isYesterday, differenceInHours } from "date-fns";
+import { format, isToday, isYesterday } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -219,32 +219,34 @@ export function MessageThread({
     };
   }, []);
 
-  // 24-hour session timer
+  // 24-hour session status — driven by the `window_expires_at` column
+  // on the conversation (set by the webhook on every inbound message).
+  // This is more reliable than client-side computation because:
+  //   1. It works even when messages haven't been fetched into the client
+  //   2. It survives page reloads without re-scanning the message list
+  //   3. It updates atomically with the webhook (no race conditions)
   const sessionInfo = useMemo(() => {
-    if (!messages.length) return { expired: false, remaining: "" };
+    if (!conversation?.window_expires_at) {
+      return { expired: true, remaining: "No customer messages" };
+    }
 
-    // Find last customer message
-    const lastCustomerMsg = [...messages]
-      .reverse()
-      .find((m) => m.sender_type === "customer");
-
-    if (!lastCustomerMsg) return { expired: true, remaining: "No customer messages" };
-
-    const hoursSince = differenceInHours(new Date(), new Date(lastCustomerMsg.created_at));
-    const expired = hoursSince >= 24;
+    const expiresAt = new Date(conversation.window_expires_at).getTime();
+    const nowMs = Date.now();
+    const expired = nowMs >= expiresAt;
 
     if (expired) {
       return { expired: true, remaining: "Expired" };
     }
 
-    const hoursLeft = 24 - hoursSince;
+    const msLeft = expiresAt - nowMs;
+    const hoursLeft = msLeft / (1000 * 60 * 60);
     const remaining =
       hoursLeft >= 1
         ? `${Math.floor(hoursLeft)}h remaining`
-        : `${Math.floor(hoursLeft * 60)}m remaining`;
+        : `${Math.floor(msLeft / (1000 * 60))}m remaining`;
 
-    return { expired, remaining };
-  }, [messages]);
+    return { expired: false, remaining };
+  }, [conversation?.window_expires_at]);
 
   // Store latest callback in a ref so fetchMessages doesn't need to
   // depend on `onMessagesLoaded` — otherwise parent re-renders cause
@@ -998,77 +1000,53 @@ export function MessageThread({
       </div>
 
       {/* Messages Area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
-        {loading ? (
+      <ScrollArea ref={scrollRef} className="min-h-0 flex-1 px-4 py-4">
+        {loading && messages.length === 0 ? (
           <div className="flex items-center justify-center py-12">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
         ) : messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12">
-            <p className="text-sm text-muted-foreground">No messages yet</p>
-            <p className="text-xs text-muted-foreground">
-              Send a template to start the conversation
+          <div className="py-12 text-center">
+            <p className="text-sm text-muted-foreground">
+              No messages yet. Start the conversation!
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {messageGroups.map((group) => (
-              <div key={group.date}>
-                {/* Date separator */}
-                <div className="mb-4 flex items-center justify-center">
-                  <span className="rounded-full bg-muted px-3 py-1 text-[10px] font-medium text-muted-foreground">
+          <div className="space-y-6">
+            {groupMessagesByDate(messages).map((group) => (
+              <div key={group.date} className="space-y-1">
+                <div className="flex justify-center py-2">
+                  <span className="rounded-full bg-muted/50 px-3 py-1 text-[10px] text-muted-foreground">
                     {formatDateSeparator(group.date)}
                   </span>
                 </div>
-                {/* Messages */}
-                <div className="space-y-2">
-                  {group.messages.map((msg) => {
-                    const parent = msg.reply_to_message_id
-                      ? messagesById.get(msg.reply_to_message_id)
-                      : null;
-                    const reply = parent
-                      ? {
-                          authorLabel: authorLabelFor(parent),
-                          preview: buildReplyPreview(parent),
-                        }
-                      : null;
-                    const msgReactions = reactionsByMessageId.get(msg.id);
-                    // Toggle is computed at the call site — `msgReactions`
-                    // and `user?.id` are already in scope, no extra hook.
-                    const handlePillToggle = (emoji: string) => {
-                      const own = msgReactions?.find(
-                        (r) =>
-                          r.actor_type === "agent" &&
-                          r.actor_id === user?.id,
-                      );
-                      const next = own?.emoji === emoji ? "" : emoji;
-                      void postReaction(msg.id, next);
-                    };
-                    return (
+                {group.messages.map((msg) => (
+                  <MessageBubble
+                    key={msg.id}
+                    message={msg}
+                    contactName={contactDisplayName}
+                    reactions={reactionsByMessageId.get(msg.id) ?? []}
+                    onReact={postReaction}
+                    onReply={handleStartReply}
+                    replyTo={
+                      msg.reply_to_message_id
+                        ? messagesById.get(msg.reply_to_message_id) ?? null
+                        : null
+                    }
+                    authorLabelFor={authorLabelFor}
+                    actions={
                       <MessageActions
-                        key={msg.id}
                         message={msg}
                         onReply={() => handleStartReply(msg)}
-                        onReact={(emoji) => {
-                          if (emoji) void postReaction(msg.id, emoji);
-                        }}
-                      >
-                        <MessageBubble
-                          message={msg}
-                          reply={reply}
-                          reactions={msgReactions}
-                          currentUserId={user?.id}
-                          onToggleReaction={handlePillToggle}
-                        />
-                      </MessageActions>
-                    );
-                  })}
-                </div>
+                      />
+                    }
+                  />
+                ))}
               </div>
             ))}
           </div>
         )}
-      </div>
+      </ScrollArea>
 
       {/* Composer */}
       <MessageComposer
@@ -1077,10 +1055,15 @@ export function MessageThread({
         onSend={handleSend}
         onSendMedia={handleSendMedia}
         onOpenTemplates={handleOpenTemplates}
-        replyTo={replyTo}
+        replyTo={
+          replyTo
+            ? { id: replyTo.id, authorLabel: replyTo.authorLabel, preview: replyTo.preview }
+            : null
+        }
         onClearReply={() => setReplyTo(null)}
       />
 
+      {/* Template picker modal */}
       <TemplatePicker
         open={templateModalOpen}
         onOpenChange={setTemplateModalOpen}

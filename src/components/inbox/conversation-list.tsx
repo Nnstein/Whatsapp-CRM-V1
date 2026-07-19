@@ -41,6 +41,13 @@ const STATUS_COLORS: Record<ConversationStatus, string> = {
   closed: "bg-muted-foreground",
 };
 
+/** Window status colors for the conversation list indicator. */
+const WINDOW_STATUS_COLORS = {
+  open: "bg-emerald-500",
+  expired: "bg-red-500",
+  unknown: "bg-gray-400",
+} as const;
+
 type InboxFilter = ConversationStatus | "all" | "unread";
 
 const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = [
@@ -442,6 +449,26 @@ function ConversationItem({
       })
     : "";
 
+  // Compute window status from the DB column (set by the webhook on every
+  // inbound customer message). This is more reliable than client-side
+  // computation from the message list because the list only holds messages
+  // that have been fetched into the client.
+  const now = Date.now();
+  const windowExpires = conversation.window_expires_at
+    ? new Date(conversation.window_expires_at).getTime()
+    : null;
+  const windowOpen = windowExpires ? windowExpires > now : false;
+  const windowColor = windowExpires
+    ? windowOpen
+      ? WINDOW_STATUS_COLORS.open
+      : WINDOW_STATUS_COLORS.expired
+    : WINDOW_STATUS_COLORS.unknown;
+  const windowTitle = windowExpires
+    ? windowOpen
+      ? "24h window open — free-form messages allowed"
+      : "24h window expired — templates only"
+    : "No inbound message yet — window status unknown";
+
   return (
     <button
       onClick={handleClick}
@@ -481,6 +508,11 @@ function ConversationItem({
                 {conversation.unread_count}
               </span>
             )}
+            {/* 24h window status indicator */}
+            <span
+              className={cn("h-2 w-2 rounded-full", windowColor)}
+              title={windowTitle}
+            />
             <span
               className={cn(
                 "h-2 w-2 rounded-full",

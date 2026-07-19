@@ -81,12 +81,25 @@ function stopSelfPing() {
 
 // Only run in Node.js (server), never in the browser.
 if (typeof window === 'undefined') {
-  // Start immediately when this module is first imported.
-  // In Next.js, this happens once per server process.
-  startSelfPing()
+  // Guard: don't start during Next.js static generation (SSG/prerender).
+  // During `next build`, Next.js spawns multiple workers that import this
+  // module. Without this guard, we'd fire 20+ self-pings against a
+  // non-existent build-time URL and spam the build logs.
+  const isBuildPhase =
+    process.env.NEXT_PHASE === 'phase-production-build' ||
+    process.env.NEXT_PHASE === 'phase-export' ||
+    process.env.CI === 'true'
 
-  // Graceful shutdown — clean up timer so the process can exit
-  // cleanly (helps with Render's deploy restart).
-  process.on('SIGTERM', stopSelfPing)
-  process.on('SIGINT', stopSelfPing)
+  if (isBuildPhase) {
+    console.log('[keep-alive] Build phase detected — skipping self-ping')
+  } else {
+    // Start immediately when this module is first imported.
+    // In Next.js, this happens once per server process.
+    startSelfPing()
+
+    // Graceful shutdown — clean up timer so the process can exit
+    // cleanly (helps with Render's deploy restart).
+    process.on('SIGTERM', stopSelfPing)
+    process.on('SIGINT', stopSelfPing)
+  }
 }

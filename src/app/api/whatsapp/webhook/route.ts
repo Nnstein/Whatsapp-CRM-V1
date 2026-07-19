@@ -691,7 +691,10 @@ async function processMessage(
     return
   }
 
-  // Update conversation
+  // Update conversation — including the 24h window expiry
+  const windowExpiresAt = new Date(parseInt(message.timestamp) * 1000)
+  windowExpiresAt.setHours(windowExpiresAt.getHours() + 24)
+
   const { error: convError } = await supabaseAdmin()
     .from('conversations')
     .update({
@@ -699,6 +702,7 @@ async function processMessage(
       last_message_at: new Date().toISOString(),
       unread_count: (conversation.unread_count || 0) + 1,
       updated_at: new Date().toISOString(),
+      window_expires_at: windowExpiresAt.toISOString(),
     })
     .eq('id', conversation.id)
 
