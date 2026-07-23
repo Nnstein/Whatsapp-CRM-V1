@@ -3,10 +3,18 @@
 //
 // One small provider-agnostic surface so the inbox draft route and the
 // inbound auto-reply bot both talk to `generateReply` without caring
-// whether the account is on OpenAI or Anthropic.
+// which provider is selected.
 // ============================================================
 
-export type AiProvider = 'openai' | 'anthropic'
+export type AiProvider =
+  | 'openai'
+  | 'anthropic'
+  | 'google'
+  | 'xai'
+  | 'kimi'
+  | 'deepseek'
+  | 'openrouter'
+  | 'custom'
 
 /**
  * Account AI setup, decrypted and ready to use. Produced by
@@ -17,6 +25,8 @@ export interface AiConfig {
   provider: AiProvider
   model: string
   apiKey: string
+  baseUrl?: string | null
+  embeddingsBaseUrl?: string | null
   systemPrompt: string | null
   isActive: boolean
   autoReplyEnabled: boolean

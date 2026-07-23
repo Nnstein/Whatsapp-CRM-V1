@@ -1,11 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { decrypt } from '@/lib/whatsapp/encryption'
-import type { AiConfig } from './types'
+import type { AiConfig, AiProvider } from './types'
 
 interface AiConfigRow {
-  provider: 'openai' | 'anthropic'
+  provider: AiProvider
   model: string
   api_key: string
+  base_url?: string | null
+  embeddings_base_url?: string | null
   system_prompt: string | null
   is_active: boolean
   auto_reply_enabled: boolean
@@ -14,7 +16,7 @@ interface AiConfigRow {
 }
 
 const CONFIG_COLUMNS =
-  'provider, model, api_key, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, embeddings_api_key'
+  'provider, model, api_key, base_url, embeddings_base_url, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, embeddings_api_key'
 
 /**
  * Load and decrypt the account's AI config for *use* (draft or
@@ -72,6 +74,8 @@ export async function loadAiConfig(
     provider: row.provider,
     model: row.model,
     apiKey: decrypt(row.api_key),
+    baseUrl: row.base_url ?? null,
+    embeddingsBaseUrl: row.embeddings_base_url ?? null,
     systemPrompt: row.system_prompt,
     isActive: row.is_active,
     autoReplyEnabled: row.auto_reply_enabled,
@@ -81,32 +85,53 @@ export async function loadAiConfig(
 }
 
 /**
- * Load + decrypt just the embeddings key, independent of `is_active`.
+ * Load + decrypt just the embeddings key & base URLs, independent of `is_active`.
  * Used by the knowledge-base ingest routes so the KB gets embedded (and
  * semantic search works) whenever an embeddings key is present, even if
  * the assistant's master switch is currently off.
  *
- * Returns `{ key, corrupt }`: `key` is null when there's no key OR it
- * can't be decrypted; `corrupt` distinguishes those cases so callers can
- * warn ("a key is set but unusable") rather than silently indexing
- * lexical-only and reporting success.
+ * Returns `{ key, corrupt, baseUrl, embeddingsBaseUrl }`.
  */
 export async function loadEmbeddingsKey(
   db: SupabaseClient,
   accountId: string,
-): Promise<{ key: string | null; corrupt: boolean }> {
+): Promise<{
+  key: string | null
+  corrupt: boolean
+  provider?: AiProvider
+  baseUrl?: string | null
+  embeddingsBaseUrl?: string | null
+}> {
   const { data, error } = await db
     .from('ai_configs')
-    .select('embeddings_api_key')
+    .select('provider, base_url, embeddings_base_url, embeddings_api_key')
     .eq('account_id', accountId)
     .maybeSingle()
-  if (error || !data?.embeddings_api_key) return { key: null, corrupt: false }
+
+  if (error || !data) {
+    return { key: null, corrupt: false }
+  }
+
+  const provider = data.provider as AiProvider
+  const baseUrl = data.base_url ?? null
+  const embeddingsBaseUrl = data.embeddings_base_url ?? null
+
+  if (!data.embeddings_api_key) {
+    return { key: null, corrupt: false, provider, baseUrl, embeddingsBaseUrl }
+  }
+
   try {
-    return { key: decrypt(data.embeddings_api_key), corrupt: false }
+    return {
+      key: decrypt(data.embeddings_api_key),
+      corrupt: false,
+      provider,
+      baseUrl,
+      embeddingsBaseUrl,
+    }
   } catch {
     console.error(
       `[ai config] embeddings key for account ${accountId} could not be decrypted — check ENCRYPTION_KEY.`,
     )
-    return { key: null, corrupt: true }
+    return { key: null, corrupt: true, provider, baseUrl, embeddingsBaseUrl }
   }
 }

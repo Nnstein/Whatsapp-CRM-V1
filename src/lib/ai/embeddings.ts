@@ -1,19 +1,15 @@
 import { AiError } from './types'
-import { aiRequestTimeoutMs } from './defaults'
+import { aiRequestTimeoutMs, normalizeBaseUrl, OPENAI_EMBEDDINGS_URL } from './defaults'
 import { providerHttpError, toNetworkError } from './providers/shared'
 
 // ============================================================
 // Embeddings (OpenAI-compatible).
 //
 // Used for the knowledge base's optional semantic-search path: embed
-// each chunk at ingest, and embed the query at retrieval. Anthropic has
-// no embeddings endpoint, so this is always OpenAI's — the account
-// supplies a (possibly separate) embeddings key. 1536-dim
+// each chunk at ingest, and embed the query at retrieval. 1536-dim
 // text-embedding-3-small matches the `vector(1536)` column in
 // migration 030.
 // ============================================================
-
-const OPENAI_EMBEDDINGS_URL = 'https://api.openai.com/v1/embeddings'
 
 export const EMBEDDING_MODEL = 'text-embedding-3-small'
 export const EMBEDDING_DIMENSIONS = 1536
@@ -41,17 +37,21 @@ export function toVectorLiteral(embedding: number[]): string {
 export async function embedTexts(
   apiKey: string,
   inputs: string[],
+  baseUrl?: string | null,
 ): Promise<number[][]> {
   if (inputs.length === 0) return []
   const timeoutMs = aiRequestTimeoutMs()
   const out: number[][] = []
+
+  const rootUrl = normalizeBaseUrl(baseUrl) || OPENAI_EMBEDDINGS_URL
+  const endpoint = `${rootUrl}/embeddings`
 
   for (let start = 0; start < inputs.length; start += BATCH_SIZE) {
     const batch = inputs.slice(start, start + BATCH_SIZE)
 
     let res: Response
     try {
-      res = await fetch(OPENAI_EMBEDDINGS_URL, {
+      res = await fetch(endpoint, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -65,7 +65,7 @@ export async function embedTexts(
     }
 
     if (!res.ok) {
-      throw await providerHttpError('OpenAI embeddings', res)
+      throw await providerHttpError('Embeddings', res)
     }
 
     const data = (await res.json().catch(() => null)) as EmbeddingResponse | null

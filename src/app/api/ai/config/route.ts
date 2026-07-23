@@ -9,6 +9,18 @@ import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
 import { validateAiCredentials } from '@/lib/ai/validate'
 import { embedTexts } from '@/lib/ai/embeddings'
 import { AiError, type AiProvider } from '@/lib/ai/types'
+import { resolveEmbeddingsBaseUrl } from '@/lib/ai/defaults'
+
+const VALID_PROVIDERS: AiProvider[] = [
+  'openai',
+  'anthropic',
+  'google',
+  'xai',
+  'kimi',
+  'deepseek',
+  'openrouter',
+  'custom',
+]
 
 function bad(message: string) {
   return NextResponse.json({ error: message }, { status: 400 })
@@ -30,7 +42,7 @@ export async function GET() {
       // `api_key` is selected only to derive `has_key` — it is stripped
       // out below and never returned to the client.
       .select(
-        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, api_key, embeddings_api_key',
+        'provider, model, base_url, embeddings_base_url, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, api_key, embeddings_api_key',
       )
       .eq('account_id', accountId)
       .maybeSingle()
@@ -62,10 +74,7 @@ export async function GET() {
  * POST /api/ai/config  (admin+)
  *
  * Upsert the account's AI config. Validates the key with the provider
- * before persisting (mirrors the WhatsApp config verifying with Meta
- * first), then stores the key AES-256-GCM-encrypted. When `api_key` is
- * omitted the existing stored key is reused (the form sends it only
- * when the user re-enters it).
+ * before persisting, then stores the key AES-256-GCM-encrypted.
  */
 export async function POST(request: Request) {
   try {
@@ -78,9 +87,24 @@ export async function POST(request: Request) {
     if (!body || typeof body !== 'object') return bad('Invalid request body')
 
     const provider = body.provider as AiProvider
-    if (provider !== 'openai' && provider !== 'anthropic') {
-      return bad('provider must be "openai" or "anthropic"')
+    if (!VALID_PROVIDERS.includes(provider)) {
+      return bad(`provider must be one of: ${VALID_PROVIDERS.join(', ')}`)
     }
+
+    const baseUrl =
+      typeof body.base_url === 'string' && body.base_url.trim()
+        ? body.base_url.trim()
+        : null
+
+    if (provider === 'custom' && !baseUrl) {
+      return bad('base_url is required when provider is set to custom')
+    }
+
+    const embeddingsBaseUrl =
+      typeof body.embeddings_base_url === 'string' && body.embeddings_base_url.trim()
+        ? body.embeddings_base_url.trim()
+        : null
+
     const model = typeof body.model === 'string' ? body.model.trim() : ''
     if (!model) return bad('model is required')
 
@@ -97,19 +121,16 @@ export async function POST(request: Request) {
 
     const rawKey = typeof body.api_key === 'string' ? body.api_key.trim() : ''
 
-    // Embeddings key (optional, for semantic KB search): a non-empty
-    // string sets/replaces it; an explicit null clears it; absent leaves
-    // it unchanged. The form only sends it when the admin edits it.
     const rawEmbeddingsKey =
       typeof body.embeddings_api_key === 'string'
         ? body.embeddings_api_key.trim()
         : ''
     const clearEmbeddingsKey = body.embeddings_api_key === null
 
-    // Reuse the stored key when the form didn't send a fresh one.
+    // Reuse stored key when the form didn't send a fresh one.
     const { data: existing } = await supabase
       .from('ai_configs')
-      .select('id, provider, model, api_key')
+      .select('id, provider, model, base_url, embeddings_base_url, api_key')
       .eq('account_id', accountId)
       .maybeSingle()
 
@@ -126,15 +147,13 @@ export async function POST(request: Request) {
       return bad('api_key is required')
     }
 
-    // Only spend a provider round-trip when the credentials that affect
-    // reachability actually changed. A save that just flips a toggle or
-    // edits the system prompt on an existing, already-validated config
-    // skips the call — no wasted token/latency on the account's key.
     const credentialsChanged =
       !existing ||
       rawKey !== '' ||
       provider !== existing.provider ||
-      model !== existing.model
+      model !== existing.model ||
+      baseUrl !== existing.base_url ||
+      embeddingsBaseUrl !== existing.embeddings_base_url
 
     if (credentialsChanged) {
       try {
@@ -142,6 +161,8 @@ export async function POST(request: Request) {
           provider,
           model,
           apiKey: apiKeyPlain,
+          baseUrl,
+          embeddingsBaseUrl,
           systemPrompt,
           isActive,
           autoReplyEnabled,
@@ -160,11 +181,14 @@ export async function POST(request: Request) {
       }
     }
 
-    // Validate a new embeddings key before storing (a cheap 1-input
-    // embed), same "verify before save" discipline as the chat key.
     if (rawEmbeddingsKey) {
       try {
-        await embedTexts(rawEmbeddingsKey, ['ping'])
+        const resolvedEmbedUrl = resolveEmbeddingsBaseUrl({
+          provider,
+          baseUrl,
+          embeddingsBaseUrl,
+        })
+        await embedTexts(rawEmbeddingsKey, ['ping'], resolvedEmbedUrl)
       } catch (err) {
         if (err instanceof AiError) {
           return NextResponse.json(
@@ -181,6 +205,8 @@ export async function POST(request: Request) {
     const shared: Record<string, unknown> = {
       provider,
       model,
+      base_url: baseUrl,
+      embeddings_base_url: embeddingsBaseUrl,
       system_prompt: systemPrompt,
       is_active: isActive,
       auto_reply_enabled: autoReplyEnabled,
@@ -208,7 +234,7 @@ export async function POST(request: Request) {
       const { error: insErr } = await supabase.from('ai_configs').insert({
         account_id: accountId,
         created_by: userId,
-        api_key: encryptedKey, // guaranteed non-null: rawKey required when no existing row
+        api_key: encryptedKey,
         ...shared,
       })
       if (insErr) {
@@ -228,9 +254,6 @@ export async function POST(request: Request) {
 
 /**
  * DELETE /api/ai/config  (admin+)
- *
- * Removes the account's AI config (turns everything off and forgets the
- * key). Also used to recover from a corrupted encrypted key.
  */
 export async function DELETE() {
   try {

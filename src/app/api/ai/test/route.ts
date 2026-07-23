@@ -5,14 +5,22 @@ import { decrypt } from '@/lib/whatsapp/encryption'
 import { validateAiCredentials } from '@/lib/ai/validate'
 import { AiError, type AiProvider } from '@/lib/ai/types'
 
+const VALID_PROVIDERS: AiProvider[] = [
+  'openai',
+  'anthropic',
+  'google',
+  'xai',
+  'kimi',
+  'deepseek',
+  'openrouter',
+  'custom',
+]
+
 /**
  * POST /api/ai/test  (admin+)
  *
  * "Test key" button: validate a candidate provider/model/key against
- * the provider WITHOUT saving. When `api_key` is omitted the stored
- * key is used, so an admin can re-test an existing config (e.g. after
- * changing the model). Returns `{ ok: true }` on success, 400 with the
- * provider's message on failure.
+ * the provider WITHOUT saving.
  */
 export async function POST(request: Request) {
   try {
@@ -27,12 +35,30 @@ export async function POST(request: Request) {
     }
 
     const provider = body.provider as AiProvider
-    if (provider !== 'openai' && provider !== 'anthropic') {
+    if (!VALID_PROVIDERS.includes(provider)) {
       return NextResponse.json(
-        { error: 'provider must be "openai" or "anthropic"' },
+        { error: `provider must be one of: ${VALID_PROVIDERS.join(', ')}` },
         { status: 400 },
       )
     }
+
+    const baseUrl =
+      typeof body.base_url === 'string' && body.base_url.trim()
+        ? body.base_url.trim()
+        : null
+
+    if (provider === 'custom' && !baseUrl) {
+      return NextResponse.json(
+        { error: 'base_url is required when provider is set to custom' },
+        { status: 400 },
+      )
+    }
+
+    const embeddingsBaseUrl =
+      typeof body.embeddings_base_url === 'string' && body.embeddings_base_url.trim()
+        ? body.embeddings_base_url.trim()
+        : null
+
     const model = typeof body.model === 'string' ? body.model.trim() : ''
     if (!model) {
       return NextResponse.json({ error: 'model is required' }, { status: 400 })
@@ -67,6 +93,8 @@ export async function POST(request: Request) {
         provider,
         model,
         apiKey: apiKeyPlain,
+        baseUrl,
+        embeddingsBaseUrl,
         systemPrompt: null,
         isActive: true,
         autoReplyEnabled: false,

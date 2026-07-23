@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/select';
 import { SettingsPanelHead } from './settings-panel-head';
 import { AiKnowledgeCard } from './ai-knowledge';
-import { AI_PROVIDER_DEFAULT_MODEL } from '@/lib/ai/defaults';
+import { AI_PROVIDER_DEFAULT_MODEL, AI_PROVIDER_DEFAULT_BASE_URL } from '@/lib/ai/defaults';
 import type { AiProvider } from '@/lib/ai/types';
 
 const MASKED_KEY = '••••••••••••••••';
@@ -34,11 +34,23 @@ const MASKED_KEY = '••••••••••••••••';
 const PROVIDER_LABEL: Record<AiProvider, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic (Claude)',
+  google: 'Google Gemini',
+  xai: 'xAI (Grok)',
+  kimi: 'Moonshot AI (Kimi)',
+  deepseek: 'DeepSeek',
+  openrouter: 'OpenRouter',
+  custom: 'Custom (OpenAI-compatible)',
 };
 
 const KEY_PLACEHOLDER: Record<AiProvider, string> = {
   openai: 'sk-...',
   anthropic: 'sk-ant-...',
+  google: 'AIzaSy...',
+  xai: 'xai-...',
+  kimi: 'sk-...',
+  deepseek: 'sk-...',
+  openrouter: 'sk-or-v1-...',
+  custom: 'API Key (or token)',
 };
 
 export function AiConfig() {
@@ -53,6 +65,8 @@ export function AiConfig() {
   const [configured, setConfigured] = useState(false);
   const [provider, setProvider] = useState<AiProvider>('openai');
   const [model, setModel] = useState(AI_PROVIDER_DEFAULT_MODEL.openai);
+  const [baseUrl, setBaseUrl] = useState<string>(AI_PROVIDER_DEFAULT_BASE_URL.openai ?? '');
+  const [embeddingsBaseUrl, setEmbeddingsBaseUrl] = useState<string>('');
   const [apiKey, setApiKey] = useState('');
   const [keyEdited, setKeyEdited] = useState(false);
   const [showKey, setShowKey] = useState(false);
@@ -65,10 +79,6 @@ export function AiConfig() {
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
   const [maxPerConversation, setMaxPerConversation] = useState(3);
 
-  // Guard keyed on the account (not a bare boolean) so an in-place
-  // account switch — ownership transfer, multi-account membership —
-  // refetches instead of showing the previous account's config. Mirrors
-  // the loadedAccountIdRef pattern in whatsapp-config.tsx.
   const loadedAccountIdRef = useRef<string | null>(null);
 
   const fetchConfig = useCallback(async () => {
@@ -82,8 +92,11 @@ export function AiConfig() {
       }
       if (data.configured) {
         setConfigured(true);
-        setProvider(data.provider);
+        const prov = data.provider as AiProvider;
+        setProvider(prov);
         setModel(data.model);
+        setBaseUrl(data.base_url ?? AI_PROVIDER_DEFAULT_BASE_URL[prov] ?? '');
+        setEmbeddingsBaseUrl(data.embeddings_base_url ?? '');
         setSystemPrompt(data.system_prompt ?? '');
         setIsActive(data.is_active);
         setAutoReplyEnabled(data.auto_reply_enabled);
@@ -108,26 +121,25 @@ export function AiConfig() {
     void fetchConfig();
   }, [accountId, fetchConfig]);
 
-  // Swap the model default when the provider changes, unless the user
-  // typed a custom model.
   const handleProviderChange = (next: AiProvider) => {
     setProvider(next);
     const isDefaultModel =
-      model === AI_PROVIDER_DEFAULT_MODEL.openai ||
-      model === AI_PROVIDER_DEFAULT_MODEL.anthropic ||
+      Object.values(AI_PROVIDER_DEFAULT_MODEL).includes(model) ||
       model.trim() === '';
     if (isDefaultModel) setModel(AI_PROVIDER_DEFAULT_MODEL[next]);
+    setBaseUrl(AI_PROVIDER_DEFAULT_BASE_URL[next] ?? '');
   };
 
   const keyPayload = () => (keyEdited ? apiKey.trim() : undefined);
 
-  // undefined = leave unchanged; '' typed = null (clear); text = set.
   const embeddingsKeyPayload = () =>
     embeddingsKeyEdited ? embeddingsKey.trim() || null : undefined;
 
   const buildBody = () => ({
     provider,
     model: model.trim(),
+    base_url: baseUrl.trim() || null,
+    embeddings_base_url: embeddingsBaseUrl.trim() || null,
     api_key: keyPayload(),
     embeddings_api_key: embeddingsKeyPayload(),
     system_prompt: systemPrompt.trim() || null,
@@ -145,6 +157,8 @@ export function AiConfig() {
         body: JSON.stringify({
           provider,
           model: model.trim(),
+          base_url: baseUrl.trim() || null,
+          embeddings_base_url: embeddingsBaseUrl.trim() || null,
           api_key: keyPayload(),
         }),
       });
@@ -161,6 +175,10 @@ export function AiConfig() {
   const handleSave = async () => {
     if (!model.trim()) {
       toast.error('Enter a model name.');
+      return;
+    }
+    if (provider === 'custom' && !baseUrl.trim()) {
+      toast.error('Enter a Base URL for custom provider.');
       return;
     }
     if (!configured && !keyEdited) {
@@ -226,7 +244,7 @@ export function AiConfig() {
     <div>
       <SettingsPanelHead
         title="Agent setup"
-        description="Bring your own OpenAI or Anthropic key. wacrm calls the provider directly with your key — no per-seat AI fees, and your data stays yours. This powers AI-drafted replies in the inbox, the auto-reply bot, and the Playground."
+        description="Bring your own AI provider key. wacrm supports OpenAI, Anthropic, Google Gemini, xAI (Grok), Moonshot (Kimi), DeepSeek, OpenRouter, and any custom OpenAI-compatible endpoint."
       />
 
       {!canEdit && (
@@ -242,8 +260,7 @@ export function AiConfig() {
               <Sparkles className="h-4 w-4 text-primary" /> Provider & key
             </CardTitle>
             <CardDescription>
-              Your key is encrypted at rest (AES-256-GCM) and never shown again
-              after saving.
+              Your key is encrypted at rest (AES-256-GCM) and never shown again after saving.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -259,10 +276,11 @@ export function AiConfig() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="openai">{PROVIDER_LABEL.openai}</SelectItem>
-                    <SelectItem value="anthropic">
-                      {PROVIDER_LABEL.anthropic}
-                    </SelectItem>
+                    {(Object.keys(PROVIDER_LABEL) as AiProvider[]).map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {PROVIDER_LABEL[p]}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -273,11 +291,34 @@ export function AiConfig() {
                   id="ai-model"
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  placeholder={AI_PROVIDER_DEFAULT_MODEL[provider]}
+                  placeholder={AI_PROVIDER_DEFAULT_MODEL[provider] || 'e.g. gpt-4o'}
                   disabled={disabled}
                 />
               </div>
             </div>
+
+            {provider !== 'anthropic' && (
+              <div className="space-y-2">
+                <Label htmlFor="ai-base-url">
+                  Base URL{' '}
+                  <span className="font-normal text-muted-foreground">
+                    {provider === 'custom' ? '(required)' : '(optional API root override)'}
+                  </span>
+                </Label>
+                <Input
+                  id="ai-base-url"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder={
+                    AI_PROVIDER_DEFAULT_BASE_URL[provider] || 'http://localhost:11434/v1'
+                  }
+                  disabled={disabled}
+                />
+                <p className="text-xs text-muted-foreground">
+                  The API root endpoint. Appends <code>/chat/completions</code> automatically.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="ai-key">API key</Label>
@@ -350,16 +391,27 @@ export function AiConfig() {
                     setEmbeddingsKeyEdited(true);
                   }
                 }}
-                placeholder="sk-... (OpenAI)"
+                placeholder="sk-..."
                 disabled={disabled}
                 autoComplete="off"
               />
+              {provider !== 'anthropic' && (
+                <div className="mt-2 space-y-1">
+                  <Label htmlFor="ai-embeddings-base-url" className="text-xs text-muted-foreground">
+                    Embeddings Base URL (optional override)
+                  </Label>
+                  <Input
+                    id="ai-embeddings-base-url"
+                    value={embeddingsBaseUrl}
+                    onChange={(e) => setEmbeddingsBaseUrl(e.target.value)}
+                    placeholder="https://api.openai.com/v1"
+                    disabled={disabled}
+                    className="h-8 text-xs"
+                  />
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">
-                An OpenAI key used only to embed your knowledge base
-                (text-embedding-3-small)
-                {provider === 'openai' ? ' — can be the same key as above' : ''}.
-                Leave blank to use keyword search instead. Clear it to turn
-                semantic search off.
+                An OpenAI-compatible key used to embed your knowledge base (1536-dim vectors). Leave blank to use keyword search instead.
               </p>
             </div>
           </CardContent>
@@ -369,9 +421,7 @@ export function AiConfig() {
           <CardHeader>
             <CardTitle className="text-base">Behaviour</CardTitle>
             <CardDescription>
-              Tell the assistant about your business — products, tone, what it
-              may and may not promise. This context feeds both drafts and
-              auto-replies.
+              Tell the assistant about your business — products, tone, what it may and may not promise.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -393,8 +443,7 @@ export function AiConfig() {
                   Enable AI assistant
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Master switch. Turns on the “Draft with AI” button in the
-                  inbox.
+                  Master switch. Turns on the “Draft with AI” button in the inbox.
                 </p>
               </div>
               <Switch
@@ -410,9 +459,7 @@ export function AiConfig() {
                   Auto-reply to inbound messages
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  The bot answers new inbound messages automatically (only when
-                  no flow handles them and no agent is assigned). Hands off to a
-                  human when it can’t help.
+                  The bot answers new inbound messages automatically (only when no flow handles them and no agent is assigned). Hands off to a human when it can’t help.
                 </p>
               </div>
               <Switch

@@ -1,6 +1,6 @@
 import { AiError, type AiConfig, type ChatMessage, type GenerateResult } from './types'
-import { HANDOFF_SENTINEL, aiRequestTimeoutMs } from './defaults'
-import { generateOpenAi } from './providers/openai'
+import { HANDOFF_SENTINEL, aiRequestTimeoutMs, resolveChatBaseUrl } from './defaults'
+import { generateOpenAiCompatible } from './providers/openai-compatible'
 import { generateAnthropic } from './providers/anthropic'
 
 export interface GenerateArgs {
@@ -19,21 +19,31 @@ export interface GenerateArgs {
 export async function generateReply(args: GenerateArgs): Promise<GenerateResult> {
   const { config, systemPrompt, messages } = args
   const timeoutMs = aiRequestTimeoutMs()
+  const baseUrl = resolveChatBaseUrl(config)
+
   const providerArgs = {
     apiKey: config.apiKey,
     model: config.model,
     systemPrompt,
     messages,
     timeoutMs,
+    baseUrl,
+    providerName: config.provider,
   }
 
   let raw: string
   switch (config.provider) {
-    case 'openai':
-      raw = await generateOpenAi(providerArgs)
-      break
     case 'anthropic':
       raw = await generateAnthropic(providerArgs)
+      break
+    case 'openai':
+    case 'google':
+    case 'xai':
+    case 'kimi':
+    case 'deepseek':
+    case 'openrouter':
+    case 'custom':
+      raw = await generateOpenAiCompatible(providerArgs)
       break
     default:
       throw new AiError(`Unsupported AI provider: ${config.provider}`, {

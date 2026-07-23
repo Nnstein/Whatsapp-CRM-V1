@@ -1,7 +1,7 @@
 import { AiError, type ChatMessage } from '../types'
 
 // ============================================================
-// Bits shared by the OpenAI + Anthropic adapters.
+// Bits shared by AI adapters.
 // ============================================================
 
 export interface ProviderArgs {
@@ -10,6 +10,8 @@ export interface ProviderArgs {
   systemPrompt: string
   messages: ChatMessage[]
   timeoutMs: number
+  baseUrl?: string | null
+  providerName?: string
 }
 
 /** Map a fetch rejection (timeout / DNS / offline) to a typed AiError. */
@@ -69,7 +71,7 @@ export async function providerHttpError(
 /**
  * Collapse consecutive same-role turns into one (joined with blank
  * lines). Anthropic requires strictly alternating roles; merging is
- * also harmless for OpenAI and keeps the transcript compact.
+ * also harmless for OpenAI-compatible providers and keeps the transcript compact.
  */
 export function mergeConsecutive(messages: ChatMessage[]): ChatMessage[] {
   const out: ChatMessage[] = []

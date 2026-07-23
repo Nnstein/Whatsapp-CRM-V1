@@ -7,6 +7,8 @@ function config(overrides: Partial<AiConfig> = {}): AiConfig {
     provider: 'openai',
     model: 'gpt-test',
     apiKey: 'sk-test',
+    baseUrl: null,
+    embeddingsBaseUrl: null,
     systemPrompt: null,
     isActive: true,
     autoReplyEnabled: false,
@@ -54,8 +56,8 @@ describe('parseGeneration', () => {
   })
 })
 
-describe('generateReply — OpenAI', () => {
-  it('calls the chat completions endpoint and returns the reply', async () => {
+describe('generateReply — OpenAI & OpenAI-compatible providers', () => {
+  it('calls the OpenAI chat completions endpoint and returns the reply', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(
@@ -71,8 +73,70 @@ describe('generateReply — OpenAI', () => {
 
     expect(res).toEqual({ text: 'Sure — happy to help!', handoff: false })
     const [url, opts] = fetchMock.mock.calls[0]
-    expect(url).toContain('api.openai.com')
+    expect(url).toContain('api.openai.com/v1/chat/completions')
     expect(opts.headers.Authorization).toBe('Bearer sk-test')
+  })
+
+  it('calls Google Gemini OpenAI-compatible endpoint', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        okResponse({ choices: [{ message: { content: 'Gemini reply' } }] }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await generateReply({
+      config: config({ provider: 'google', model: 'gemini-2.0-flash' }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'Hi' }],
+    })
+
+    expect(res).toEqual({ text: 'Gemini reply', handoff: false })
+    const [url] = fetchMock.mock.calls[0]
+    expect(url).toContain('generativelanguage.googleapis.com/v1beta/openai/chat/completions')
+  })
+
+  it('calls OpenRouter endpoint with custom headers', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        okResponse({ choices: [{ message: { content: 'OpenRouter reply' } }] }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await generateReply({
+      config: config({ provider: 'openrouter', apiKey: 'sk-or-123' }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'Hi' }],
+    })
+
+    expect(res).toEqual({ text: 'OpenRouter reply', handoff: false })
+    const [url, opts] = fetchMock.mock.calls[0]
+    expect(url).toContain('openrouter.ai/api/v1/chat/completions')
+    expect(opts.headers['HTTP-Referer']).toBeTruthy()
+    expect(opts.headers['X-Title']).toBe('wacrm WhatsApp CRM')
+  })
+
+  it('supports custom base URL override', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        okResponse({ choices: [{ message: { content: 'Ollama reply' } }] }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const res = await generateReply({
+      config: config({
+        provider: 'custom',
+        baseUrl: 'http://localhost:11434/v1',
+      }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'Hi' }],
+    })
+
+    expect(res).toEqual({ text: 'Ollama reply', handoff: false })
+    const [url] = fetchMock.mock.calls[0]
+    expect(url).toBe('http://localhost:11434/v1/chat/completions')
   })
 
   it('maps a 401 to an invalid_key AiError', async () => {
