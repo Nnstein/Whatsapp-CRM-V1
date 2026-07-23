@@ -86,7 +86,7 @@ export async function POST(request: Request) {
 
     const { data: conversation, error: convError } = await supabase
       .from('conversations')
-      .select('id, account_id, contact:contacts(phone)')
+      .select('id, account_id, whatsapp_config_id, contact:contacts(phone)')
       .eq('id', targetMessage.conversation_id)
       .eq('account_id', accountId)
       .maybeSingle();
@@ -109,13 +109,35 @@ export async function POST(request: Request) {
     }
 
     // WhatsApp config + access token. Account-scoped post-multi-user.
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('phone_number_id, access_token')
-      .eq('account_id', accountId)
-      .single();
+    let config: any = null;
+    if (conversation.whatsapp_config_id) {
+      const { data: matched } = await supabase
+        .from('whatsapp_config')
+        .select('phone_number_id, access_token')
+        .eq('id', conversation.whatsapp_config_id)
+        .maybeSingle();
+      config = matched;
+    }
+    if (!config) {
+      const { data: defaultConfig } = await supabase
+        .from('whatsapp_config')
+        .select('phone_number_id, access_token')
+        .eq('account_id', accountId)
+        .eq('is_default', true)
+        .maybeSingle();
+      config = defaultConfig;
+    }
+    if (!config) {
+      const { data: fallbackConfig } = await supabase
+        .from('whatsapp_config')
+        .select('phone_number_id, access_token')
+        .eq('account_id', accountId)
+        .limit(1)
+        .maybeSingle();
+      config = fallbackConfig;
+    }
 
-    if (configError || !config) {
+    if (!config) {
       return NextResponse.json(
         { error: 'WhatsApp not configured.' },
         { status: 400 },

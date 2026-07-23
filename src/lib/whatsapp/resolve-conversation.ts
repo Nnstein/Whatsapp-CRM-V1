@@ -30,6 +30,7 @@ export interface ResolvedConversation {
   contactId: string;
   /** True if this call created the contact (vs matched an existing one). */
   contactCreated: boolean;
+  whatsappConfigId: string;
 }
 
 /**
@@ -42,7 +43,8 @@ export async function resolveConversationByPhone(
   db: SupabaseClient,
   accountId: string,
   phone: string,
-  name?: string | null
+  name?: string | null,
+  whatsappConfigId?: string | null
 ): Promise<ResolvedConversation> {
   const sanitized = sanitizePhoneForMeta(phone);
   if (!isValidE164(sanitized)) {
@@ -53,13 +55,38 @@ export async function resolveConversationByPhone(
     );
   }
 
-  // Fail fast (and create nothing) when the account has no WhatsApp
-  // connected — the same error the send would raise anyway.
-  const { data: config } = await db
-    .from('whatsapp_config')
-    .select('id')
-    .eq('account_id', accountId)
-    .maybeSingle();
+  // Resolve WhatsApp config for the specified ID or default number
+  let config: { id: string } | null = null;
+  if (whatsappConfigId) {
+    const { data } = await db
+      .from('whatsapp_config')
+      .select('id')
+      .eq('account_id', accountId)
+      .or(`id.eq.${whatsappConfigId},phone_number_id.eq.${whatsappConfigId}`)
+      .maybeSingle();
+    config = data;
+  }
+
+  if (!config) {
+    const { data: defaultConfig } = await db
+      .from('whatsapp_config')
+      .select('id')
+      .eq('account_id', accountId)
+      .eq('is_default', true)
+      .maybeSingle();
+    config = defaultConfig;
+  }
+
+  if (!config) {
+    const { data: fallbackConfig } = await db
+      .from('whatsapp_config')
+      .select('id')
+      .eq('account_id', accountId)
+      .limit(1)
+      .maybeSingle();
+    config = fallbackConfig;
+  }
+
   if (!config) {
     throw new SendMessageError(
       'whatsapp_not_configured',
@@ -137,17 +164,17 @@ export async function resolveConversationByPhone(
   }
 
   // ---- conversation -------------------------------------------
-  // One conversation per (account, contact) — same convention as the
-  // webhook.
+  // Conversation scoped per (account, contact, number)
   const { data: conv } = await db
     .from('conversations')
     .select('id')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
+    .eq('whatsapp_config_id', config.id)
     .maybeSingle();
 
   if (conv?.id) {
-    return { conversationId: conv.id, contactId, contactCreated };
+    return { conversationId: conv.id, contactId, contactCreated, whatsappConfigId: config.id };
   }
 
   const { data: newConv, error: convErr } = await db
@@ -156,6 +183,7 @@ export async function resolveConversationByPhone(
       account_id: accountId,
       user_id: ownerUserId,
       contact_id: contactId,
+      whatsapp_config_id: config.id,
     })
     .select('id')
     .single();
@@ -169,5 +197,5 @@ export async function resolveConversationByPhone(
     );
   }
 
-  return { conversationId: newConv.id, contactId, contactCreated };
+  return { conversationId: newConv.id, contactId, contactCreated, whatsappConfigId: config.id };
 }

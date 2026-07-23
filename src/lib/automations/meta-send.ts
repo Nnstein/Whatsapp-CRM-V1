@@ -83,12 +83,44 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', input.accountId)
-    .single()
-  if (configErr || !config) {
+  let config: any = null
+  if (input.conversationId) {
+    const { data: conv } = await db
+      .from('conversations')
+      .select('whatsapp_config_id')
+      .eq('id', input.conversationId)
+      .maybeSingle()
+    if (conv?.whatsapp_config_id) {
+      const { data: matched } = await db
+        .from('whatsapp_config')
+        .select('*')
+        .eq('id', conv.whatsapp_config_id)
+        .maybeSingle()
+      config = matched
+    }
+  }
+
+  if (!config) {
+    const { data: defaultConfig } = await db
+      .from('whatsapp_config')
+      .select('*')
+      .eq('account_id', input.accountId)
+      .eq('is_default', true)
+      .maybeSingle()
+    config = defaultConfig
+  }
+
+  if (!config) {
+    const { data: fallbackConfig } = await db
+      .from('whatsapp_config')
+      .select('*')
+      .eq('account_id', input.accountId)
+      .limit(1)
+      .maybeSingle()
+    config = fallbackConfig
+  }
+
+  if (!config) {
     throw new Error('WhatsApp not configured for this account')
   }
 

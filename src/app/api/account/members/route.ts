@@ -49,6 +49,24 @@ export async function GET() {
 
     const canSeeEmails = canManageMembers(ctx.role);
 
+    // Fetch assignments for members if caller can manage members
+    let assignmentsMap: Record<string, string[]> = {};
+    if (canSeeEmails) {
+      const { data: assignments } = await ctx.supabase
+        .from('agent_whatsapp_numbers')
+        .select('user_id, whatsapp_config_id')
+        .eq('account_id', ctx.accountId);
+
+      if (assignments) {
+        for (const row of assignments) {
+          if (!assignmentsMap[row.user_id]) {
+            assignmentsMap[row.user_id] = [];
+          }
+          assignmentsMap[row.user_id].push(row.whatsapp_config_id);
+        }
+      }
+    }
+
     const members: AccountMember[] = (data as ProfileRow[]).flatMap((row) => {
       // Defensive: the DB enum should never let an unknown role
       // through, but if a migration ever broadens the enum without
@@ -62,6 +80,7 @@ export async function GET() {
           avatar_url: row.avatar_url,
           role: row.account_role,
           joined_at: row.created_at,
+          assigned_whatsapp_config_ids: assignmentsMap[row.user_id] || [],
         },
       ];
     });

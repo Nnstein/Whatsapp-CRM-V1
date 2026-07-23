@@ -138,12 +138,24 @@ export async function PATCH(
     }
 
     if (!isDryRun()) {
-      const { data: config, error: configError } = await supabase
+      let config: any = null
+      const { data: defaultConfig } = await supabase
         .from('whatsapp_config')
         .select('*')
         .eq('account_id', accountId)
-        .single()
-      if (configError || !config) {
+        .eq('is_default', true)
+        .maybeSingle()
+      config = defaultConfig
+      if (!config) {
+        const { data: fallbackConfig } = await supabase
+          .from('whatsapp_config')
+          .select('*')
+          .eq('account_id', accountId)
+          .limit(1)
+          .maybeSingle()
+        config = fallbackConfig
+      }
+      if (!config) {
         return NextResponse.json(
           { error: 'WhatsApp not configured.' },
           { status: 400 },
@@ -278,12 +290,24 @@ export async function DELETE(
     }
 
     if (existing.meta_template_id && !isDryRun()) {
-      const { data: config, error: configError } = await supabase
+      let config: any = null
+      const { data: defaultConfig } = await supabase
         .from('whatsapp_config')
         .select('*')
         .eq('account_id', accountId)
-        .single()
-      if (configError || !config || !config.waba_id) {
+        .eq('is_default', true)
+        .maybeSingle()
+      config = defaultConfig
+      if (!config) {
+        const { data: fallbackConfig } = await supabase
+          .from('whatsapp_config')
+          .select('*')
+          .eq('account_id', accountId)
+          .limit(1)
+          .maybeSingle()
+        config = fallbackConfig
+      }
+      if (!config || !config.waba_id) {
         return NextResponse.json(
           { error: 'WhatsApp not configured — cannot delete on Meta.' },
           { status: 400 },

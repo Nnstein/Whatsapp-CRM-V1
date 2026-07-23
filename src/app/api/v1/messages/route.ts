@@ -86,6 +86,13 @@ export async function POST(request: Request) {
       templateName: typeof template?.name === 'string' ? template.name : null,
     });
 
+    const whatsappConfigId =
+      typeof body.whatsapp_config_id === 'string'
+        ? body.whatsapp_config_id
+        : typeof body.phone_number_id === 'string'
+        ? body.phone_number_id
+        : undefined;
+
     // Find-or-create the conversation for this phone, then send. Both
     // steps share `SendMessageError`, so one catch maps the whole
     // pipeline to the envelope.
@@ -93,7 +100,8 @@ export async function POST(request: Request) {
       ctx.supabase,
       ctx.accountId,
       to,
-      typeof body.name === 'string' ? body.name : null
+      typeof body.name === 'string' ? body.name : null,
+      whatsappConfigId
     );
 
     const result = await sendMessageToConversation(
@@ -124,6 +132,7 @@ export async function POST(request: Request) {
         conversation_id: resolved.conversationId,
         contact_id: resolved.contactId,
         contact_created: resolved.contactCreated,
+        whatsapp_config_id: resolved.whatsappConfigId,
       },
       201
     );

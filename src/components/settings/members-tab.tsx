@@ -82,6 +82,7 @@ interface Member {
   avatar_url: string | null;
   role: AccountRole;
   joined_at: string;
+  assigned_whatsapp_config_ids?: string[];
 }
 
 interface Invitation {
@@ -100,13 +101,7 @@ const EDITABLE_ROLES: { value: AccountRole; label: string; hint: string }[] = [
   { value: 'viewer', label: 'Viewer', hint: 'Read-only across the app' },
 ];
 
-// Per-role chip metadata (icon / label / colour) lives in the shared
-// ROLE_META module so this roster and the Overview identity chip can't
-// drift. The colour scale runs amber (owner — scarce, immutable) →
-// primary (admin) → muted (agent / viewer).
-
 function fmtDate(iso: string): string {
-  // Match the rest of the dashboard's locale-light formatting.
   const d = new Date(iso);
   return d.toLocaleDateString(undefined, {
     year: 'numeric',
@@ -130,6 +125,10 @@ export function MembersTab() {
 
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [whatsappNumbers, setWhatsappNumbers] = useState<import('@/types').WhatsAppConfig[]>([]);
+  const [editingMemberNumbers, setEditingMemberNumbers] = useState<Member | null>(null);
+  const [selectedConfigIds, setSelectedConfigIds] = useState<string[]>([]);
+  const [savingNumbers, setSavingNumbers] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -140,11 +139,12 @@ export function MembersTab() {
 
   const loadEverything = useCallback(async () => {
     try {
-      const [mres, ires] = await Promise.all([
+      const [mres, ires, nres] = await Promise.all([
         fetch('/api/account/members', { cache: 'no-store' }),
         canManageMembers
           ? fetch('/api/account/invitations', { cache: 'no-store' })
           : Promise.resolve(null),
+        fetch('/api/account/whatsapp-numbers', { cache: 'no-store' }),
       ]);
 
       if (!mres.ok) {
@@ -166,6 +166,13 @@ export function MembersTab() {
       } else {
         setInvitations([]);
       }
+
+      if (nres.ok) {
+        const ndata = await nres.json();
+        if (Array.isArray(ndata.whatsapp_numbers)) {
+          setWhatsappNumbers(ndata.whatsapp_numbers);
+        }
+      }
     } catch (err) {
       console.error('[MembersTab] load error:', err);
       toast.error('Could not reach the server');
@@ -177,6 +184,39 @@ export function MembersTab() {
   useEffect(() => {
     void loadEverything();
   }, [loadEverything]);
+
+  async function handleSaveNumbers() {
+    if (!editingMemberNumbers) return;
+    setSavingNumbers(true);
+    try {
+      const res = await fetch(`/api/account/members/${editingMemberNumbers.user_id}/numbers`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ whatsapp_config_ids: selectedConfigIds }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Failed to update assigned numbers');
+        return;
+      }
+
+      toast.success(`Updated assigned inboxes for ${editingMemberNumbers.full_name || 'member'}`);
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.user_id === editingMemberNumbers.user_id
+            ? { ...m, assigned_whatsapp_config_ids: selectedConfigIds }
+            : m
+        )
+      );
+      setEditingMemberNumbers(null);
+    } catch (err) {
+      console.error('[MembersTab] numbers change error:', err);
+      toast.error('Could not reach the server');
+    } finally {
+      setSavingNumbers(false);
+    }
+  }
 
   async function handleRoleChange(member: Member, nextRole: AccountRole) {
     if (member.role === nextRole) return;
@@ -394,6 +434,22 @@ export function MembersTab() {
                           {member.email}
                         </p>
                       )}
+                      {whatsappNumbers.length > 0 && member.role !== 'owner' && member.role !== 'admin' && (
+                        <div className="flex flex-wrap items-center gap-1 mt-1">
+                          {(member.assigned_whatsapp_config_ids || []).map((id) => {
+                            const num = whatsappNumbers.find((n) => n.id === id);
+                            if (!num) return null;
+                            return (
+                              <Badge key={id} variant="outline" className="text-[10px] py-0 px-1.5 font-normal bg-muted/40 text-muted-foreground border-border">
+                                {num.label}
+                              </Badge>
+                            );
+                          })}
+                          {(member.assigned_whatsapp_config_ids || []).length === 0 && (
+                            <span className="text-[10px] text-amber-500/80 italic">No inboxes assigned</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -443,6 +499,20 @@ export function MembersTab() {
                         <RoleIcon className="size-3.5" />
                         {roleMeta.label}
                       </span>
+                    )}
+
+                    {canManageMembers && !isOwnerRow && !isSelf && whatsappNumbers.length > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditingMemberNumbers(member);
+                          setSelectedConfigIds(member.assigned_whatsapp_config_ids || []);
+                        }}
+                        className="border-border text-muted-foreground hover:text-foreground text-xs h-9 px-2"
+                      >
+                        Inboxes ({(member.assigned_whatsapp_config_ids || []).length})
+                      </Button>
                     )}
 
                     {/* Remove. Admin+ only; never on the owner row;
@@ -609,6 +679,84 @@ export function MembersTab() {
                 </>
               ) : (
                 'Remove member'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={editingMemberNumbers !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingMemberNumbers(null);
+        }}
+      >
+        <DialogContent className="bg-popover border-border sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-popover-foreground">
+              Assign WhatsApp Inboxes
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Select which WhatsApp numbers{' '}
+              <span className="font-medium text-foreground">
+                {editingMemberNumbers?.full_name || 'this member'}
+              </span>{' '}
+              can view and respond to.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-3">
+            {whatsappNumbers.map((num) => {
+              const isChecked = selectedConfigIds.includes(num.id);
+              return (
+                <label
+                  key={num.id}
+                  className="flex items-center justify-between p-3 rounded-lg border border-border bg-muted/40 hover:bg-muted/70 cursor-pointer"
+                >
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-foreground">{num.label}</span>
+                      {num.is_default && (
+                        <Badge className="text-[9px] py-0 px-1 bg-primary/10 text-primary border-none">Default</Badge>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground font-mono">{num.phone_number_id}</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedConfigIds((prev) => [...prev, num.id]);
+                      } else {
+                        setSelectedConfigIds((prev) => prev.filter((id) => id !== num.id));
+                      }
+                    }}
+                    className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                  />
+                </label>
+              );
+            })}
+          </div>
+          <DialogFooter className="bg-popover border-border">
+            <Button
+              variant="outline"
+              onClick={() => setEditingMemberNumbers(null)}
+              className="border-border text-muted-foreground hover:bg-muted"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveNumbers}
+              disabled={savingNumbers}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            >
+              {savingNumbers ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save Inboxes'
               )}
             </Button>
           </DialogFooter>

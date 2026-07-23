@@ -61,6 +61,15 @@ export async function POST(request: Request) {
 
     const auditUserId = await resolveAuditUserId(ctx.supabase, ctx.accountId);
 
+    const whatsappConfigId =
+      typeof body.whatsapp_config_id === 'string'
+        ? body.whatsapp_config_id
+        : undefined;
+    const phoneNumberId =
+      typeof body.phone_number_id === 'string'
+        ? body.phone_number_id
+        : undefined;
+
     const plan = await createBroadcast(ctx.supabase, ctx.accountId, auditUserId, {
       name: typeof body.name === 'string' ? body.name : null,
       templateName,
@@ -68,6 +77,8 @@ export async function POST(request: Request) {
         typeof body.template_language === 'string'
           ? body.template_language
           : null,
+      whatsappConfigId,
+      phoneNumberId,
       recipients: recipients.map((r) => ({
         to: typeof r?.to === 'string' ? r.to : '',
         params: Array.isArray(r?.params) ? r.params : undefined,
@@ -82,6 +93,7 @@ export async function POST(request: Request) {
     return ok(
       {
         broadcast_id: plan.broadcastId,
+        whatsapp_config_id: plan.whatsappConfigId,
         status: 'sending',
         total_recipients: plan.planned.length,
         accepted: plan.planned.length,

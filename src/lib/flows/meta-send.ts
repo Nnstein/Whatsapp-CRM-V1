@@ -77,14 +77,7 @@ export async function engineSendText(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', args.accountId)
-    .single()
-  if (configErr || !config) {
-    throw new Error('WhatsApp not configured for this account')
-  }
+  const config = await resolveConfigForAccountAndConversation(db, args.accountId, args.conversationId)
 
   const accessToken = decrypt(config.access_token)
 
@@ -186,14 +179,7 @@ export async function engineSendMedia(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', args.accountId)
-    .single()
-  if (configErr || !config) {
-    throw new Error('WhatsApp not configured for this account')
-  }
+  const config = await resolveConfigForAccountAndConversation(db, args.accountId, args.conversationId)
 
   const accessToken = decrypt(config.access_token)
 
@@ -338,14 +324,7 @@ async function sendInteractiveViaMeta(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', input.accountId)
-    .single()
-  if (configErr || !config) {
-    throw new Error('WhatsApp not configured for this account')
-  }
+  const config = await resolveConfigForAccountAndConversation(db, input.accountId, input.conversationId)
 
   const accessToken = decrypt(config.access_token)
 
@@ -431,4 +410,53 @@ async function sendInteractiveViaMeta(
     .eq('id', input.conversationId)
 
   return { whatsapp_message_id: waMessageId }
+}
+
+async function resolveConfigForAccountAndConversation(
+  db: any,
+  accountId: string,
+  conversationId?: string
+) {
+  let config: any = null
+  if (conversationId) {
+    const { data: conv } = await db
+      .from('conversations')
+      .select('whatsapp_config_id')
+      .eq('id', conversationId)
+      .maybeSingle()
+    if (conv?.whatsapp_config_id) {
+      const { data: matched } = await db
+        .from('whatsapp_config')
+        .select('*')
+        .eq('id', conv.whatsapp_config_id)
+        .maybeSingle()
+      config = matched
+    }
+  }
+
+  if (!config) {
+    const { data: defaultConfig } = await db
+      .from('whatsapp_config')
+      .select('*')
+      .eq('account_id', accountId)
+      .eq('is_default', true)
+      .maybeSingle()
+    config = defaultConfig
+  }
+
+  if (!config) {
+    const { data: fallbackConfig } = await db
+      .from('whatsapp_config')
+      .select('*')
+      .eq('account_id', accountId)
+      .limit(1)
+      .maybeSingle()
+    config = fallbackConfig
+  }
+
+  if (!config) {
+    throw new Error('WhatsApp not configured for this account')
+  }
+
+  return config
 }

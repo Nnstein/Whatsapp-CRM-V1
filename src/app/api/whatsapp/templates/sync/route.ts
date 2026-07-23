@@ -150,13 +150,25 @@ export async function POST() {
       )
     }
 
-    const { data: config, error: configError } = await supabase
+    let config: any = null
+    const { data: defaultConfig } = await supabase
       .from('whatsapp_config')
       .select('*')
       .eq('account_id', accountId)
-      .single()
+      .eq('is_default', true)
+      .maybeSingle()
+    config = defaultConfig
+    if (!config) {
+      const { data: fallbackConfig } = await supabase
+        .from('whatsapp_config')
+        .select('*')
+        .eq('account_id', accountId)
+        .limit(1)
+        .maybeSingle()
+      config = fallbackConfig
+    }
 
-    if (configError || !config) {
+    if (!config) {
       return NextResponse.json(
         {
           error:

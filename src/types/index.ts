@@ -65,6 +65,7 @@ export interface AccountMember {
   avatar_url: string | null;
   role: AccountRole;
   joined_at: string;
+  assigned_whatsapp_config_ids?: string[];
 }
 
 /**
@@ -150,7 +151,10 @@ export type ConversationStatus = 'open' | 'pending' | 'closed';
 export interface Conversation {
   id: string;
   user_id: string;
+  account_id: string;
   contact_id: string;
+  /** The WhatsApp number this conversation belongs to. Added in migration 033. */
+  whatsapp_config_id: string;
   status: ConversationStatus;
   assigned_agent_id?: string;
   last_message_text?: string;
@@ -235,7 +239,14 @@ export interface MessageReaction {
 export interface WhatsAppConfig {
   id: string;
   user_id: string;
+  account_id: string;
   phone_number_id: string;
+  /** Display label for this number, e.g. "Sales" or "Support 1". */
+  label: string;
+  /** True if this is the account's default outgoing number. */
+  is_default: boolean;
+  /** Ordering hint for UI lists. */
+  sort_order: number;
   waba_id?: string;
   access_token: string;
   verify_token?: string;
@@ -251,6 +262,18 @@ export interface WhatsAppConfig {
   subscribed_apps_at?: string;
   /** Last error from /register; cleared on success. */
   last_registration_error?: string;
+}
+
+/**
+ * Per-agent assignment to a WhatsApp number. Added in migration 033.
+ * Admin/owner membership is implicit; only agents/viewers need rows.
+ */
+export interface AgentWhatsAppNumber {
+  id: string;
+  account_id: string;
+  user_id: string;
+  whatsapp_config_id: string;
+  created_at: string;
 }
 
 // Raw Meta status enum. We persist this verbatim from Meta (sync + webhook)
@@ -353,6 +376,8 @@ export interface Broadcast {
   name: string;
   template_name: string;
   template_language: string;
+  /** The WhatsApp number this broadcast was sent from. Added in migration 033. */
+  whatsapp_config_id?: string;
   template_variables?: Record<string, unknown>;
   audience_filter?: Record<string, unknown>;
   scheduled_at?: string;

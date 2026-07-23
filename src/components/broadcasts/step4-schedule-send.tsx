@@ -27,6 +27,8 @@ interface Step4Props {
   onNameChange: (name: string) => void;
   template: MessageTemplate;
   audience: AudienceConfig;
+  whatsappConfigId?: string;
+  onWhatsappConfigIdChange?: (id: string) => void;
   onSend: () => void;
   onSaveDraft?: () => void;
   onBack: () => void;
@@ -39,6 +41,8 @@ export function Step4ScheduleSend({
   onNameChange,
   template,
   audience,
+  whatsappConfigId,
+  onWhatsappConfigIdChange,
   onSend,
   onSaveDraft,
   onBack,
@@ -48,6 +52,31 @@ export function Step4ScheduleSend({
   const [showConfirm, setShowConfirm] = useState(false);
   const [estimatedReach, setEstimatedReach] = useState<number>(0);
   const [loadingReach, setLoadingReach] = useState(true);
+  const [whatsappNumbers, setWhatsappNumbers] = useState<import('@/types').WhatsAppConfig[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/account/whatsapp-numbers');
+        const data = await res.json();
+        if (!cancelled && res.ok && Array.isArray(data.whatsapp_numbers)) {
+          setWhatsappNumbers(data.whatsapp_numbers);
+          if (!whatsappConfigId && data.whatsapp_numbers.length > 0) {
+            const def = data.whatsapp_numbers.find((n: any) => n.is_default) || data.whatsapp_numbers[0];
+            if (def && onWhatsappConfigIdChange) {
+              onWhatsappConfigIdChange(def.id);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load numbers for broadcast send step:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     async function calculateReach() {
@@ -109,6 +138,24 @@ export function Step4ScheduleSend({
           className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
         />
       </div>
+
+      {/* Sender WhatsApp Number Selector */}
+      {whatsappNumbers.length > 0 && (
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-foreground">Send From WhatsApp Number</label>
+          <select
+            value={whatsappConfigId || ''}
+            onChange={(e) => onWhatsappConfigIdChange?.(e.target.value)}
+            className="w-full rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            {whatsappNumbers.map((num) => (
+              <option key={num.id} value={num.id}>
+                {num.label} ({num.phone_number_id}){num.is_default ? ' — Default' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Summary Card */}
       <div className="rounded-xl border border-border bg-card/50 p-4 space-y-3">
