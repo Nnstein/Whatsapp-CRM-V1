@@ -156,6 +156,34 @@ describe('generateReply — OpenAI & OpenAI-compatible providers', () => {
     ).rejects.toMatchObject({ code: 'invalid_key', status: 401 })
   })
 
+  it('maps Google Gemini HTTP 400 array response with invalid key to invalid_key AiError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        errResponse(400, [
+          {
+            error: {
+              code: 400,
+              message: 'Please pass a valid API key',
+              status: 'INVALID_ARGUMENT',
+            },
+          },
+        ]),
+      ),
+    )
+
+    await expect(
+      generateReply({
+        config: config({ provider: 'google' }),
+        systemPrompt: 'sys',
+        messages: [{ role: 'user', content: 'Hi' }],
+      }),
+    ).rejects.toMatchObject({
+      code: 'invalid_key',
+      message: 'google rejected the API key: Please pass a valid API key',
+    })
+  })
+
   it('throws on an empty completion', async () => {
     vi.stubGlobal(
       'fetch',

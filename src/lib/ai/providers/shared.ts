@@ -37,7 +37,10 @@ export async function providerHttpError(
 ): Promise<AiError> {
   let detail = ''
   try {
-    const body = (await res.json()) as { error?: { message?: string } | string }
+    const raw = (await res.json()) as unknown
+    const body = (Array.isArray(raw) ? raw[0] : raw) as
+      | { error?: { message?: string } | string }
+      | undefined
     detail =
       typeof body?.error === 'string'
         ? body.error
@@ -47,12 +50,16 @@ export async function providerHttpError(
   }
 
   const { status } = res
-  const code =
-    status === 401 || status === 403
-      ? 'invalid_key'
-      : status === 429
-        ? 'rate_limited'
-        : 'provider_error'
+  const isInvalidKey =
+    status === 401 ||
+    status === 403 ||
+    (status === 400 && /api key|unauthorized|invalid_argument|invalid key/i.test(detail))
+
+  const code = isInvalidKey
+    ? 'invalid_key'
+    : status === 429
+      ? 'rate_limited'
+      : 'provider_error'
   const base =
     code === 'invalid_key'
       ? `${provider} rejected the API key`
