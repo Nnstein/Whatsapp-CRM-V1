@@ -23,7 +23,7 @@ export async function generateOpenAiCompatible(
   const { apiKey, model, systemPrompt, messages, timeoutMs, baseUrl, providerName } = args
 
   const rootUrl = normalizeBaseUrl(baseUrl) || DEFAULT_OPENAI_BASE_URL
-  let endpoint = `${rootUrl}/chat/completions`
+  const endpoint = `${rootUrl}/chat/completions`
   const displayName = providerName || 'AI Provider'
 
   const headers: Record<string, string> = {
@@ -35,14 +35,6 @@ export async function generateOpenAiCompatible(
   if (rootUrl.includes('openrouter.ai')) {
     headers['HTTP-Referer'] = process.env.NEXT_PUBLIC_SITE_URL || 'https://wacrm.app'
     headers['X-Title'] = 'wacrm WhatsApp CRM'
-  }
-
-  // Google AI Studio (Gemini) compatibility: pass API key in query param & header
-  if (rootUrl.includes('generativelanguage.googleapis.com')) {
-    headers['x-goog-api-key'] = apiKey
-    if (!endpoint.includes('key=')) {
-      endpoint += `?key=${encodeURIComponent(apiKey)}`
-    }
   }
 
   let res: Response
