@@ -37,15 +37,25 @@ export async function GET() {
   try {
     const { supabase, accountId } = await getCurrentAccount()
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('ai_configs')
-      // `api_key` is selected only to derive `has_key` — it is stripped
-      // out below and never returned to the client.
       .select(
         'provider, model, base_url, embeddings_base_url, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, api_key, embeddings_api_key',
       )
       .eq('account_id', accountId)
       .maybeSingle()
+
+    if (error && (error.code === '42703' || error.message?.includes('base_url'))) {
+      const res = await supabase
+        .from('ai_configs')
+        .select(
+          'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, api_key, embeddings_api_key',
+        )
+        .eq('account_id', accountId)
+        .maybeSingle()
+      data = res.data ? { ...res.data, base_url: null, embeddings_base_url: null } : null
+      error = res.error
+    }
 
     if (error) {
       console.error('[ai/config GET] fetch error:', error)
@@ -56,8 +66,6 @@ export async function GET() {
     }
 
     if (!data) return NextResponse.json({ configured: false })
-    // The keys are selected only to derive the has_* flags; neither is
-    // returned to the client.
     const { api_key, embeddings_api_key, ...safe } = data
     return NextResponse.json({
       configured: true,
@@ -72,9 +80,6 @@ export async function GET() {
 
 /**
  * POST /api/ai/config  (admin+)
- *
- * Upsert the account's AI config. Validates the key with the provider
- * before persisting, then stores the key AES-256-GCM-encrypted.
  */
 export async function POST(request: Request) {
   try {
