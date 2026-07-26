@@ -40,7 +40,7 @@ export async function GET() {
     let { data, error } = await supabase
       .from('ai_configs')
       .select(
-        'provider, model, base_url, embeddings_base_url, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, api_key, embeddings_api_key',
+        'provider, model, base_url, embeddings_base_url, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, api_key, embeddings_api_key, auto_enrich_contacts_enabled, auto_enrich_max_messages',
       )
       .eq('account_id', accountId)
       .maybeSingle()
@@ -53,7 +53,7 @@ export async function GET() {
         )
         .eq('account_id', accountId)
         .maybeSingle()
-      data = res.data ? { ...res.data, base_url: null, embeddings_base_url: null } : null
+      data = res.data ? { ...res.data, base_url: null, embeddings_base_url: null, auto_enrich_contacts_enabled: true, auto_enrich_max_messages: 5 } : null
       error = res.error
     }
 
@@ -124,6 +124,12 @@ export async function POST(request: Request) {
     if (!Number.isFinite(maxPer)) maxPer = 3
     maxPer = Math.min(20, Math.max(1, Math.floor(maxPer)))
 
+    const autoEnrichEnabled = body.auto_enrich_contacts_enabled !== false // default true
+
+    let maxEnrich = Number(body.auto_enrich_max_messages)
+    if (!Number.isFinite(maxEnrich)) maxEnrich = 5
+    maxEnrich = Math.min(20, Math.max(1, Math.floor(maxEnrich)))
+
     const rawKey = typeof body.api_key === 'string' ? body.api_key.trim() : ''
 
     const rawEmbeddingsKey =
@@ -173,6 +179,8 @@ export async function POST(request: Request) {
           autoReplyEnabled,
           autoReplyMaxPerConversation: maxPer,
           embeddingsApiKey: null,
+          autoEnrichContactsEnabled: autoEnrichEnabled,
+          autoEnrichMaxMessages: maxEnrich,
         })
       } catch (err) {
         if (err instanceof AiError) {
@@ -216,6 +224,8 @@ export async function POST(request: Request) {
       is_active: isActive,
       auto_reply_enabled: autoReplyEnabled,
       auto_reply_max_per_conversation: maxPer,
+      auto_enrich_contacts_enabled: autoEnrichEnabled,
+      auto_enrich_max_messages: maxEnrich,
     }
     if (rawEmbeddingsKey) {
       shared.embeddings_api_key = encrypt(rawEmbeddingsKey)

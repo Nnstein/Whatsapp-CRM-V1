@@ -277,7 +277,12 @@ export async function DELETE(
       return NextResponse.json({ error: 'Template not found.' }, { status: 404 })
     }
 
-    if (existing.meta_template_id && !isDryRun()) {
+    // A `dry-run-*` meta_template_id means the template was created
+    // locally without a real Meta submission (WHATSAPP_TEMPLATES_DRY_RUN=true).
+    // There is no corresponding Meta resource to delete — skip the API call.
+    const isDryRunId = existing.meta_template_id?.startsWith('dry-run-') ?? false
+
+    if (existing.meta_template_id && !isDryRunId && !isDryRun()) {
       const { data: config, error: configError } = await supabase
         .from('whatsapp_config')
         .select('*')
@@ -299,9 +304,16 @@ export async function DELETE(
         })
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Meta delete failed.'
-        return NextResponse.json({ error: message }, { status: 502 })
+        const isAlreadyDeleted = /invalid parameter|not found|does not exist/i.test(message)
+        if (!isAlreadyDeleted) {
+          return NextResponse.json({ error: message }, { status: 502 })
+        }
+        console.warn(
+          `[templates DELETE] template ${id} (${existing.name}) already deleted on Meta: ${message}. Proceeding with local database removal.`,
+        )
       }
     }
+
 
     const { error: delErr } = await supabase
       .from('message_templates')

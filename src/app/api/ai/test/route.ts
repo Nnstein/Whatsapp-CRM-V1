@@ -100,6 +100,8 @@ export async function POST(request: Request) {
         autoReplyEnabled: false,
         autoReplyMaxPerConversation: 3,
         embeddingsApiKey: null,
+        autoEnrichContactsEnabled: true,
+        autoEnrichMaxMessages: 5,
       })
     } catch (err) {
       if (err instanceof AiError) {

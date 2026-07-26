@@ -100,10 +100,15 @@ export interface Contact {
   avatar_url?: string;
   created_at: string;
   updated_at: string;
+  /** Set when the AI enrichment engine last successfully extracted
+   *  details from this contact's inbound messages. Used to show the
+   *  "AI Enriched" badge in the inbox sidebar. */
+  ai_enriched_at?: string | null;
   /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
    *  Inbox conversation list, for tag filtering). Absent otherwise. */
   tags?: Tag[];
 }
+
 
 export interface Tag {
   id: string;

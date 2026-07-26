@@ -659,10 +659,33 @@ export async function deleteMessageTemplate(
     method: 'DELETE',
     headers: { Authorization: `Bearer ${accessToken}` },
   })
-  // Treat a 404 as a no-op — the template is already gone on Meta's
-  // side, and we still want the local row removed.
+  // Treat a 404 or 400 "Invalid parameter" / "does not exist" as a no-op:
+  // the template is already gone on Meta's side, and we still want the local row removed.
   if (response.status === 404) return
   if (!response.ok) {
+    const body = (await response.clone().json().catch(() => null)) as {
+      error?: { message?: string; code?: number; error_subcode?: number }
+    } | null
+    const errorMsg = body?.error?.message ?? ''
+    const code = body?.error?.code
+    const subcode = body?.error?.error_subcode
+
+    // Meta returns 400 "Invalid parameter" or code 100 / subcode 2388001 when a template
+    // has already been deleted directly in Meta's WhatsApp Manager.
+    if (
+      response.status === 400 &&
+      (errorMsg.toLowerCase().includes('invalid parameter') ||
+        errorMsg.toLowerCase().includes('not found') ||
+        errorMsg.toLowerCase().includes('does not exist') ||
+        code === 100 ||
+        subcode === 2388001)
+    ) {
+      console.warn(
+        `[meta-api] template '${name}' (${metaTemplateId}) already deleted on Meta (${errorMsg}); proceeding to remove local record.`
+      )
+      return
+    }
+
     await throwMetaError(response, `Meta API error: ${response.status}`)
   }
 }

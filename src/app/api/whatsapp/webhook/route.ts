@@ -11,6 +11,8 @@ import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import { dispatchContactEnrichment } from '@/lib/ai/extract-contact'
+import { loadAiConfig } from '@/lib/ai/config'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import {
   handleTemplateWebhookChange,
@@ -805,6 +807,24 @@ async function processMessage(
       contactId: contactRecord.id,
       configOwnerUserId,
     })
+  }
+
+  // AI contact enrichment. Runs for every inbound text message (including
+  // those consumed by a flow) — extracting contact details is independent
+  // of the reply logic. Requires the AI assistant to be configured and active;
+  // `loadAiConfig` respects the `is_active` flag. Best-effort: the dispatcher
+  // owns its try/catch and never throws.
+  if (inboundText.trim()) {
+    const aiConfig = await loadAiConfig(supabaseAdmin(), accountId).catch(() => null)
+    if (aiConfig) {
+      void dispatchContactEnrichment({
+        db: supabaseAdmin(),
+        accountId,
+        contactId: contactRecord.id,
+        conversationId: conversation.id,
+        config: aiConfig,
+      })
+    }
   }
 
   // message.received webhook (public API). Awaited — not fire-and-forget

@@ -78,6 +78,8 @@ export function AiConfig() {
   const [isActive, setIsActive] = useState(false);
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
   const [maxPerConversation, setMaxPerConversation] = useState(3);
+  const [autoEnrichEnabled, setAutoEnrichEnabled] = useState(true);
+  const [maxEnrichMessages, setMaxEnrichMessages] = useState(5);
 
   const loadedAccountIdRef = useRef<string | null>(null);
 
@@ -101,6 +103,8 @@ export function AiConfig() {
         setIsActive(data.is_active);
         setAutoReplyEnabled(data.auto_reply_enabled);
         setMaxPerConversation(data.auto_reply_max_per_conversation ?? 3);
+        setAutoEnrichEnabled(data.auto_enrich_contacts_enabled !== false);
+        setMaxEnrichMessages(data.auto_enrich_max_messages ?? 5);
         setHasStoredKey(Boolean(data.has_key));
         setApiKey(data.has_key ? MASKED_KEY : '');
         setKeyEdited(false);
@@ -146,6 +150,8 @@ export function AiConfig() {
     is_active: isActive,
     auto_reply_enabled: autoReplyEnabled,
     auto_reply_max_per_conversation: maxPerConversation,
+    auto_enrich_contacts_enabled: autoEnrichEnabled,
+    auto_enrich_max_messages: maxEnrichMessages,
   });
 
   const handleTest = async () => {
@@ -465,7 +471,7 @@ export function AiConfig() {
               <Switch
                 checked={autoReplyEnabled}
                 onCheckedChange={setAutoReplyEnabled}
-                disabled={disabled || !isActive}
+                disabled={disabled}
               />
             </div>
 
@@ -487,7 +493,48 @@ export function AiConfig() {
                     Math.min(20, Math.max(1, Number(e.target.value) || 1)),
                   )
                 }
-                disabled={disabled || !autoReplyEnabled}
+                disabled={disabled}
+                className="w-20"
+              />
+            </div>
+
+            {/* ── AI Contact Auto-Enrichment ── */}
+            <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  AI Contact Auto-Enrichment
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Automatically extract name, email, company, and intent tags from inbound messages and save them to the Contact Manager.
+                </p>
+              </div>
+              <Switch
+                id="ai-enrich-toggle"
+                checked={autoEnrichEnabled}
+                onCheckedChange={setAutoEnrichEnabled}
+                disabled={disabled}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="ai-enrich-max">Max messages to analyse per conversation</Label>
+                <p className="text-xs text-muted-foreground">
+                  Enrichment stops after this many inbound messages (keeps AI costs bounded).
+                </p>
+              </div>
+              <Input
+                id="ai-enrich-max"
+                type="number"
+                min={1}
+                max={20}
+                value={maxEnrichMessages}
+                onChange={(e) =>
+                  setMaxEnrichMessages(
+                    Math.min(20, Math.max(1, Number(e.target.value) || 1)),
+                  )
+                }
+                disabled={disabled || !autoEnrichEnabled}
                 className="w-20"
               />
             </div>

@@ -13,10 +13,12 @@ interface AiConfigRow {
   auto_reply_enabled: boolean
   auto_reply_max_per_conversation: number
   embeddings_api_key: string | null
+  auto_enrich_contacts_enabled: boolean
+  auto_enrich_max_messages: number
 }
 
 const CONFIG_COLUMNS =
-  'provider, model, api_key, base_url, embeddings_base_url, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, embeddings_api_key'
+  'provider, model, api_key, base_url, embeddings_base_url, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, embeddings_api_key, auto_enrich_contacts_enabled, auto_enrich_max_messages'
 
 const FALLBACK_COLUMNS =
   'provider, model, api_key, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, embeddings_api_key'
@@ -82,6 +84,8 @@ export async function loadAiConfig(
     autoReplyEnabled: row.auto_reply_enabled,
     autoReplyMaxPerConversation: row.auto_reply_max_per_conversation,
     embeddingsApiKey,
+    autoEnrichContactsEnabled: row.auto_enrich_contacts_enabled ?? true,
+    autoEnrichMaxMessages: row.auto_enrich_max_messages ?? 5,
   }
 }
 

@@ -15,6 +15,7 @@ import {
   DollarSign,
   StickyNote,
   Plus,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -148,6 +149,12 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
             </h3>
             {contact.company && (
               <p className="text-xs text-muted-foreground">{contact.company}</p>
+            )}
+            {contact.ai_enriched_at && (
+              <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                <Sparkles className="h-2.5 w-2.5" />
+                AI Enriched
+              </span>
             )}
           </div>
 

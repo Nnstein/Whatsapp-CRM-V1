@@ -6,6 +6,7 @@ import {
   Palette,
   PlugZap,
   Shield,
+  Sparkles,
   Tags,
   User,
   UsersRound,
@@ -26,6 +27,7 @@ export const SETTINGS_SECTIONS = [
   'security',
   'appearance',
   'whatsapp',
+  'ai',
   'templates',
   'fields',
   'deals',
@@ -51,6 +53,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   security: { id: 'security', label: 'Login & security', icon: Shield, group: 'account' },
   appearance: { id: 'appearance', label: 'Appearance', icon: Palette, group: 'account' },
   whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace' },
+  ai: { id: 'ai', label: 'AI Assistant', icon: Sparkles, group: 'workspace' },
   templates: { id: 'templates', label: 'Templates', icon: FileText, group: 'workspace' },
   fields: { id: 'fields', label: 'Fields & tags', icon: Tags, group: 'workspace' },
   deals: { id: 'deals', label: 'Deals & currency', icon: Coins, group: 'workspace' },
@@ -76,6 +79,7 @@ function isSection(value: string | null): value is SettingsSection {
  */
 export function resolveSection(raw: string | null): SettingsSection {
   if (raw === 'tags' || raw === 'custom-fields') return 'fields';
+  if (raw === 'agent' || raw === 'ai-config') return 'ai';
   if (isSection(raw)) return raw;
   return DEFAULT_SECTION;
 }

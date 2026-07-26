@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { THEMES } from '@/lib/themes';
-import { CURRENCIES } from '@/lib/currency';
+import { CURRENCIES, DEFAULT_CURRENCY } from '@/lib/currency';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -41,10 +41,6 @@ export function SettingsOverview({
 
   const [counts, setCounts] = useState<OverviewCounts | null>(null);
   const [countsLoading, setCountsLoading] = useState(true);
-  // WhatsApp status is tracked separately: its health check decrypts the
-  // token and pings Meta, which is far slower than the cheap count
-  // queries. Gating it independently keeps a slow/flaky Meta round-trip
-  // from blanking the rest of the landing.
   const [whatsapp, setWhatsapp] = useState<WhatsAppStatus | null>(null);
   const [whatsappLoading, setWhatsappLoading] = useState(true);
 
@@ -53,12 +49,11 @@ export function SettingsOverview({
     let cancelled = false;
     const supabase = createClient();
     const userId = user.id;
-    const acctId = accountId;
 
     // Cheap counts — resolve fast, render immediately.
     (async () => {
       setCountsLoading(true);
-      const [membersRes, invitesRes, templatesTotal, templatesPending, tagsRes, fieldsRes] =
+      const [membersRes, invitesRes, tagsRes, fieldsRes] =
         await Promise.allSettled([
           fetch('/api/account/members', { cache: 'no-store' }).then((r) => r.json()),
           canManageMembers
@@ -66,15 +61,6 @@ export function SettingsOverview({
                 r.json(),
               )
             : Promise.resolve(null),
-          supabase
-            .from('message_templates')
-            .select('id', { count: 'exact', head: true })
-            .eq('user_id', userId),
-          supabase
-            .from('message_templates')
-            .select('id', { count: 'exact', head: true })
-            .eq('user_id', userId)
-            .eq('status', 'PENDING'),
           supabase
             .from('tags')
             .select('id', { count: 'exact', head: true })
@@ -98,57 +84,70 @@ export function SettingsOverview({
       setCounts({
         members,
         pendingInvites,
-        templates:
-          templatesTotal.status === 'fulfilled'
-            ? templatesTotal.value.count ?? null
-            : null,
-        templatesPending:
-          templatesPending.status === 'fulfilled'
-            ? templatesPending.value.count ?? null
-            : null,
-        tags: tagsRes.status === 'fulfilled' ? tagsRes.value.count ?? null : null,
-        customFields:
-          fieldsRes.status === 'fulfilled' ? fieldsRes.value.count ?? null : null,
+        templates: null,
+        templatesPending: null,
+        tags: tagsRes.status === 'fulfilled' ? tagsRes.value.count ?? 0 : null,
+        customFields: fieldsRes.status === 'fulfilled' ? fieldsRes.value.count ?? 0 : null,
       });
       setCountsLoading(false);
     })();
 
-    // WhatsApp connection status — slower, independent.
+    // WhatsApp status
     (async () => {
       setWhatsappLoading(true);
-      const [row, health] = await Promise.allSettled([
-        supabase
-          .from('whatsapp_config')
-          .select('phone_number_id')
-          .eq('account_id', acctId)
-          .maybeSingle(),
-        fetch('/api/whatsapp/config', { cache: 'no-store' }).then((r) => r.json()),
-      ]);
-      if (cancelled) return;
-      setWhatsapp({
-        configured: row.status === 'fulfilled' && !!row.value.data?.phone_number_id,
-        connected: health.status === 'fulfilled' && !!health.value?.connected,
-      });
-      setWhatsappLoading(false);
+      try {
+        const res = await fetch('/api/whatsapp/config', { cache: 'no-store' });
+        if (!res.ok) {
+          if (!cancelled) {
+            setWhatsapp({ configured: false, connected: false });
+            setWhatsappLoading(false);
+          }
+          return;
+        }
+        const data = await res.json();
+        if (cancelled) return;
+
+        if (!data.configured) {
+          setWhatsapp({ configured: false, connected: false });
+        } else {
+          const testRes = await fetch('/api/whatsapp/test-connection', {
+            method: 'POST',
+            cache: 'no-store',
+          });
+          const testData = await testRes.json();
+          setWhatsapp({
+            configured: true,
+            connected: testRes.ok && testData.status === 'connected',
+          });
+        }
+      } catch {
+        if (!cancelled) setWhatsapp({ configured: false, connected: false });
+      } finally {
+        if (!cancelled) setWhatsappLoading(false);
+      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [user?.id, accountId, canManageMembers]);
+  }, [user, accountId, canManageMembers]);
 
-  const displayName = profile?.full_name || profile?.email || 'Your account';
-  const initial = (profile?.full_name || profile?.email || 'U').charAt(0).toUpperCase();
   const roleMeta = accountRole ? ROLE_META[accountRole] : null;
   const RoleIcon = roleMeta?.icon;
 
-  const currencyLabel =
-    CURRENCIES.find((c) => c.code === defaultCurrency)?.label ?? defaultCurrency;
-  const themeName = THEMES.find((t) => t.id === theme)?.name ?? theme;
+  const displayName =
+    profile?.full_name?.trim() ||
+    user?.email?.split('@')[0] ||
+    'Account Member';
+
+  const initial = (displayName.charAt(0) || 'A').toUpperCase();
+
+  const themeName = THEMES.find((t) => t.id === theme)?.name ?? 'Violet';
+  const curr = defaultCurrency ?? DEFAULT_CURRENCY;
+  const currencyLabel = CURRENCIES.find((c) => c.code === curr)?.label ?? curr;
+
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-  // Per-tile loading + subtitle. `null` counts render as a graceful
-  // fallback so a single failed query never blanks a tile.
   const tiles: {
     section: SettingsSection;
     loading: boolean;
@@ -158,47 +157,43 @@ export function SettingsOverview({
       section: 'whatsapp',
       loading: whatsappLoading,
       subtitle: !whatsapp?.configured ? (
-        'Not set up yet'
+        <>
+          <StatusDot tone="muted" /> Not configured
+        </>
       ) : whatsapp.connected ? (
         <>
-          <StatusDot tone="ok" /> Connected
+          <StatusDot tone="ok" /> Connected to Meta
         </>
       ) : (
         <>
-          <StatusDot tone="muted" /> Needs reconnecting
+          <StatusDot tone="muted" /> Token or phone ID invalid
         </>
       ),
+    },
+    {
+      section: 'ai',
+      loading: false,
+      subtitle: 'Multi-provider AI, Auto-reply & Contact Auto-enrichment',
     },
     {
       section: 'members',
       loading: countsLoading,
       subtitle:
         counts?.members == null
-          ? 'View team members'
+          ? 'Manage team'
           : `${counts.members} member${counts.members === 1 ? '' : 's'}${
-              counts.pendingInvites
-                ? ` · ${counts.pendingInvites} pending invite${
-                    counts.pendingInvites === 1 ? '' : 's'
-                  }`
-                : ''
+              counts.pendingInvites ? ` · ${counts.pendingInvites} pending` : ''
             }`,
     },
     {
       section: 'templates',
       loading: countsLoading,
-      subtitle:
-        counts?.templates == null
-          ? 'Manage message templates'
-          : `${counts.templates} template${counts.templates === 1 ? '' : 's'}${
-              counts.templatesPending
-                ? ` · ${counts.templatesPending} pending review`
-                : ''
-            }`,
+      subtitle: 'WhatsApp Message Templates',
     },
     {
       section: 'deals',
       loading: false,
-      subtitle: `${defaultCurrency} — ${currencyLabel}`,
+      subtitle: `${curr} — ${currencyLabel}`,
     },
     {
       section: 'fields',
