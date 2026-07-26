@@ -147,7 +147,8 @@ export async function POST(request: Request) {
         supabase,
         accountId,
         user.id,
-        contact_id
+        contact_id,
+        body.whatsapp_config_id
       )
       if (!resolved) {
         return NextResponse.json(
@@ -220,12 +221,41 @@ async function findOrCreateConversation(
   accountId: string,
   userId: string,
   contactId: string,
+  whatsappConfigId?: string | null,
 ): Promise<string | null> {
+  // Resolve config id
+  let configId = whatsappConfigId;
+  if (!configId) {
+    const { data: defaultConfig } = await supabase
+      .from('whatsapp_config')
+      .select('id')
+      .eq('account_id', accountId)
+      .eq('is_default', true)
+      .maybeSingle()
+    configId = defaultConfig?.id
+  }
+
+  if (!configId) {
+    const { data: fallbackConfig } = await supabase
+      .from('whatsapp_config')
+      .select('id')
+      .eq('account_id', accountId)
+      .limit(1)
+      .maybeSingle()
+    configId = fallbackConfig?.id
+  }
+
+  if (!configId) {
+    console.error('No WhatsApp config found for account send')
+    return null
+  }
+
   const { data: existing } = await supabase
     .from('conversations')
     .select('id')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
+    .eq('whatsapp_config_id', configId)
     .maybeSingle()
 
   if (existing) return existing.id
@@ -236,6 +266,7 @@ async function findOrCreateConversation(
       account_id: accountId,
       user_id: userId,
       contact_id: contactId,
+      whatsapp_config_id: configId,
     })
     .select('id')
     .single()

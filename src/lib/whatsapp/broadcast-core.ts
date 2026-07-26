@@ -53,6 +53,8 @@ export interface CreateBroadcastParams {
   name?: string | null;
   templateName: string;
   templateLanguage?: string | null;
+  whatsappConfigId?: string | null;
+  phoneNumberId?: string | null;
   recipients: BroadcastRecipientInput[];
 }
 
@@ -64,6 +66,7 @@ interface PlannedRecipient {
 
 export interface BroadcastPlan {
   broadcastId: string;
+  whatsappConfigId: string;
   templateName: string;
   templateLanguage: string;
   phoneNumberId: string;
@@ -88,7 +91,7 @@ export async function createBroadcast(
   auditUserId: string,
   params: CreateBroadcastParams
 ): Promise<BroadcastPlan> {
-  const { name, templateName, recipients } = params;
+  const { name, templateName, recipients, whatsappConfigId, phoneNumberId } = params;
   const templateLanguage = params.templateLanguage || 'en_US';
 
   if (!templateName) {
@@ -111,12 +114,37 @@ export async function createBroadcast(
 
   // Config (fail fast + provides the audit trail owner already resolved
   // by the caller). Meta send needs phone_number_id + decrypted token.
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
-  if (configError || !config) {
+  const targetConfigId = whatsappConfigId || phoneNumberId;
+  let config: any = null;
+  if (targetConfigId) {
+    const { data } = await db
+      .from('whatsapp_config')
+      .select('*')
+      .eq('account_id', accountId)
+      .or(`id.eq.${targetConfigId},phone_number_id.eq.${targetConfigId}`)
+      .maybeSingle();
+    config = data;
+  }
+  if (!config) {
+    const { data: defaultConfig } = await db
+      .from('whatsapp_config')
+      .select('*')
+      .eq('account_id', accountId)
+      .eq('is_default', true)
+      .maybeSingle();
+    config = defaultConfig;
+  }
+  if (!config) {
+    const { data: fallbackConfig } = await db
+      .from('whatsapp_config')
+      .select('*')
+      .eq('account_id', accountId)
+      .limit(1)
+      .maybeSingle();
+    config = fallbackConfig;
+  }
+
+  if (!config) {
     throw new BroadcastError(
       'whatsapp_not_configured',
       'WhatsApp not configured. Please set up your WhatsApp integration first.',
@@ -197,6 +225,7 @@ export async function createBroadcast(
     .from('broadcasts')
     .insert({
       account_id: accountId,
+      whatsapp_config_id: config.id,
       user_id: auditUserId,
       name: name || `API broadcast (${templateName})`,
       template_name: templateName,
@@ -236,6 +265,7 @@ export async function createBroadcast(
 
   return {
     broadcastId: broadcast.id,
+    whatsappConfigId: config.id,
     templateName,
     templateLanguage,
     phoneNumberId: config.phone_number_id,

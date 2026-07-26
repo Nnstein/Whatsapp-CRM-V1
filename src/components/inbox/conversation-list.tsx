@@ -68,6 +68,9 @@ export function ConversationList({
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [loading, setLoading] = useState(true);
+  const [whatsappNumbers, setWhatsappNumbers] = useState<import("@/types").WhatsAppConfig[]>([]);
+  const [selectedNumberId, setSelectedNumberId] = useState<string | null>(null);
+
   // Contact-based filters (issue #272). Tags use OR logic (a conversation
   // matches if its contact carries any selected tag), consistent with
   // Broadcast audience filtering. Company is an exact match on the field.
@@ -75,18 +78,6 @@ export function ConversationList({
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
 
-  // Keep the latest callback in a ref so the fetch effect below can
-  // have a stable, empty-dep identity. Previously the fetch useCallback
-  // depended on `onConversationsLoaded`, which depends on the parent's
-  // `deepLinkConvId` — so every URL change (including one the parent
-  // triggered via router.replace after a click) caused a fresh
-  // conversations fetch. That extra refetch was the trigger for the
-  // deep-link auto-select running a second time and wiping the active
-  // thread's messages.
-  // Mutation lives in an effect (not render) per React 19's refs rule;
-  // the fetch runs once on mount so it's fine to read the slightly
-  // older value — the very next render updates the ref for any
-  // subsequent async completion.
   const onConversationsLoadedRef = useRef(onConversationsLoaded);
   useEffect(() => {
     onConversationsLoadedRef.current = onConversationsLoaded;
@@ -97,15 +88,19 @@ export function ConversationList({
     let cancelled = false;
 
     (async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("conversations")
-        .select(CONVERSATION_SELECT)
-        .order("last_message_at", { ascending: false });
+        .select(CONVERSATION_SELECT);
+
+      if (selectedNumberId) {
+        query = query.eq("whatsapp_config_id", selectedNumberId);
+      }
+
+      const { data, error } = await query.order("last_message_at", { ascending: false });
 
       if (cancelled) return;
 
       if (error) {
-        // Supabase errors have non-enumerable properties — log fields explicitly
         console.error("Failed to fetch conversations:", {
           message: error.message,
           details: error.details,
@@ -123,9 +118,25 @@ export function ConversationList({
     return () => {
       cancelled = true;
     };
-    // `resyncToken` is included so the parent can force a refetch when
-    // the realtime channel reconnects or the tab regains focus — catches
-    // up on any events sent while the WS was disconnected or throttled.
+  }, [resyncToken, selectedNumberId]);
+
+  // Load WhatsApp numbers available to the caller for filtering
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/account/whatsapp-numbers");
+        const data = await res.json();
+        if (!cancelled && res.ok && Array.isArray(data.whatsapp_numbers)) {
+          setWhatsappNumbers(data.whatsapp_numbers);
+        }
+      } catch (err) {
+        console.error("Failed to load WhatsApp numbers for inbox:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [resyncToken]);
 
   // Tag definitions for the filter picker — loaded once so labels/colours
@@ -160,8 +171,18 @@ export function ConversationList({
     return m;
   }, [tags]);
 
+  const numbersMap = useMemo(() => {
+    const m = new Map<string, import("@/types").WhatsAppConfig>();
+    for (const num of whatsappNumbers) m.set(num.id, num);
+    return m;
+  }, [whatsappNumbers]);
+
   const filtered = useMemo(() => {
     let result = conversations;
+
+    if (selectedNumberId) {
+      result = result.filter((c) => c.whatsapp_config_id === selectedNumberId);
+    }
 
     if (filter === "unread") {
       result = result.filter((c) => c.unread_count > 0);
@@ -190,7 +211,7 @@ export function ConversationList({
     }
 
     return result;
-  }, [conversations, filter, search, selectedTagIds, selectedCompany]);
+  }, [conversations, selectedNumberId, filter, search, selectedTagIds, selectedCompany]);
 
   const toggleTag = useCallback((id: string) => {
     setSelectedTagIds((prev) =>
@@ -220,12 +241,58 @@ export function ConversationList({
   );
 
   const activeFilter = FILTER_OPTIONS.find((o) => o.value === filter);
+  const activeNumber = whatsappNumbers.find((n) => n.id === selectedNumberId);
 
   return (
     // w-full on mobile so the list occupies the whole viewport when it's
     // the single pane showing; fixed 320px on desktop where it shares the
     // row with the thread + contact sidebar.
     <div className="flex h-full w-full flex-col border-r border-border bg-card lg:w-80">
+      {/* Number Selector Header (shown if user has access to multiple numbers) */}
+      {whatsappNumbers.length > 1 && (
+        <div className="border-b border-border p-2 bg-muted/30">
+          <DropdownMenu>
+            <DropdownMenuTrigger className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-xs font-medium text-foreground bg-muted/60 hover:bg-muted rounded-md border border-border">
+              <span className="truncate flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                {activeNumber ? activeNumber.label : "All Inboxes"}
+              </span>
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64 border-border bg-popover">
+              <DropdownMenuItem
+                onClick={() => setSelectedNumberId(null)}
+                className={cn(
+                  "text-xs font-medium flex items-center justify-between",
+                  selectedNumberId === null ? "text-primary font-semibold" : "text-popover-foreground"
+                )}
+              >
+                <span>All Inboxes</span>
+                <span className="text-[10px] text-muted-foreground">{whatsappNumbers.length} numbers</span>
+              </DropdownMenuItem>
+              {whatsappNumbers.map((num) => (
+                <DropdownMenuItem
+                  key={num.id}
+                  onClick={() => setSelectedNumberId(num.id)}
+                  className={cn(
+                    "text-xs flex items-center justify-between",
+                    selectedNumberId === num.id ? "text-primary font-semibold" : "text-popover-foreground"
+                  )}
+                >
+                  <div className="flex flex-col min-w-0">
+                    <span className="truncate">{num.label}</span>
+                    <span className="text-[10px] text-muted-foreground truncate">{num.phone_number_id}</span>
+                  </div>
+                  {num.is_default && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium shrink-0">Default</span>
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
+
       {/* Search + Filter */}
       <div className="space-y-2 border-b border-border p-3">
         <div className="relative">
@@ -415,6 +482,7 @@ export function ConversationList({
                 conversation={conv}
                 isActive={conv.id === activeConversationId}
                 onSelect={handleSelect}
+                numberLabel={whatsappNumbers.length > 1 ? numbersMap.get(conv.whatsapp_config_id)?.label : undefined}
               />
             ))}
           </div>
@@ -428,12 +496,14 @@ interface ConversationItemProps {
   conversation: Conversation;
   isActive: boolean;
   onSelect: (conversation: Conversation) => void;
+  numberLabel?: string;
 }
 
 function ConversationItem({
   conversation,
   isActive,
   onSelect,
+  numberLabel,
 }: ConversationItemProps) {
   const contact = conversation.contact;
   const displayName = contact?.name || contact?.phone || "Unknown";
@@ -493,9 +563,16 @@ function ConversationItem({
       {/* Content */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-sm font-medium text-foreground">
-            {displayName}
-          </span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="truncate text-sm font-medium text-foreground">
+              {displayName}
+            </span>
+            {numberLabel && (
+              <span className="shrink-0 rounded bg-muted/80 border border-border/80 px-1 py-0.5 text-[9px] text-muted-foreground font-mono">
+                {numberLabel}
+              </span>
+            )}
+          </div>
           <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo}</span>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">

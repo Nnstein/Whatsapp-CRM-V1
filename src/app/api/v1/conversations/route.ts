@@ -27,6 +27,27 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const status = url.searchParams.get('status');
     const contactId = url.searchParams.get('contact_id');
+    const rawNumberId =
+      url.searchParams.get('whatsapp_config_id') ||
+      url.searchParams.get('phone_number_id');
+    let resolvedConfigId: string | null = null;
+
+    if (rawNumberId) {
+      const { data: matched } = await ctx.supabase
+        .from('whatsapp_config')
+        .select('id')
+        .eq('account_id', ctx.accountId)
+        .or(`id.eq.${rawNumberId},phone_number_id.eq.${rawNumberId}`)
+        .maybeSingle();
+      if (!matched) {
+        return fail(
+          'bad_request',
+          'Invalid whatsapp_config_id or phone_number_id for this account',
+          400
+        );
+      }
+      resolvedConfigId = matched.id;
+    }
 
     let query = ctx.supabase
       .from('conversations')
@@ -35,6 +56,7 @@ export async function GET(request: Request) {
 
     if (status) query = query.eq('status', status);
     if (contactId) query = query.eq('contact_id', contactId);
+    if (resolvedConfigId) query = query.eq('whatsapp_config_id', resolvedConfigId);
 
     query = query
       .order('created_at', { ascending: false })

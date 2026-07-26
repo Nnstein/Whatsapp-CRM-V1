@@ -219,14 +219,38 @@ export async function sendMessageToConversation(
     );
   }
 
-  // WhatsApp config, account-scoped.
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
+  // WhatsApp config, scoped to conversation.whatsapp_config_id or account default.
+  let config: any = null;
+  if (conversation.whatsapp_config_id) {
+    const { data } = await db
+      .from('whatsapp_config')
+      .select('*')
+      .eq('id', conversation.whatsapp_config_id)
+      .maybeSingle();
+    config = data;
+  }
 
-  if (configError || !config) {
+  if (!config) {
+    const { data: defaultConfig } = await db
+      .from('whatsapp_config')
+      .select('*')
+      .eq('account_id', accountId)
+      .eq('is_default', true)
+      .maybeSingle();
+    config = defaultConfig;
+  }
+
+  if (!config) {
+    const { data: fallbackConfig } = await db
+      .from('whatsapp_config')
+      .select('*')
+      .eq('account_id', accountId)
+      .limit(1)
+      .maybeSingle();
+    config = fallbackConfig;
+  }
+
+  if (!config) {
     throw new SendMessageError(
       'whatsapp_not_configured',
       'WhatsApp not configured. Please set up your WhatsApp integration first.',

@@ -134,13 +134,37 @@ export async function POST(request: Request) {
       )
     }
 
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
+    const targetConfigId = body.whatsapp_config_id || body.phone_number_id
+    let config: any = null
+    if (targetConfigId) {
+      const { data } = await supabase
+        .from('whatsapp_config')
+        .select('*')
+        .eq('account_id', accountId)
+        .or(`id.eq.${targetConfigId},phone_number_id.eq.${targetConfigId}`)
+        .maybeSingle()
+      config = data
+    }
+    if (!config) {
+      const { data: defaultConfig } = await supabase
+        .from('whatsapp_config')
+        .select('*')
+        .eq('account_id', accountId)
+        .eq('is_default', true)
+        .maybeSingle()
+      config = defaultConfig
+    }
+    if (!config) {
+      const { data: fallbackConfig } = await supabase
+        .from('whatsapp_config')
+        .select('*')
+        .eq('account_id', accountId)
+        .limit(1)
+        .maybeSingle()
+      config = fallbackConfig
+    }
 
-    if (configError || !config) {
+    if (!config) {
       return NextResponse.json(
         {
           error:

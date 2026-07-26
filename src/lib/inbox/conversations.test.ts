@@ -11,7 +11,9 @@ function makeConversation(
   return {
     id: "c1",
     user_id: "u1",
+    account_id: "a1",
     contact_id: "ct1",
+    whatsapp_config_id: "wc1",
     status: "open",
     unread_count: 0,
     created_at: "",
@@ -105,7 +107,9 @@ describe("normalizeConversation", () => {
     const raw = {
       id: "c1",
       user_id: "u1",
+      account_id: "a1",
       contact_id: "ct1",
+      whatsapp_config_id: "wc1",
       status: "open" as const,
       unread_count: 0,
       created_at: "",
@@ -132,7 +136,9 @@ describe("normalizeConversation", () => {
     const raw = {
       id: "c1",
       user_id: "u1",
+      account_id: "a1",
       contact_id: "ct1",
+      whatsapp_config_id: "wc1",
       status: "open" as const,
       unread_count: 0,
       created_at: "",

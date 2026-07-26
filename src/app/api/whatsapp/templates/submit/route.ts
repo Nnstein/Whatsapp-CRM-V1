@@ -149,12 +149,24 @@ export async function POST(request: Request) {
       metaTemplateId = `dry-run-${crypto.randomUUID()}`
       metaStatus = 'PENDING'
     } else {
-      const { data: config, error: configError } = await supabase
+      let config: any = null
+      const { data: defaultConfig } = await supabase
         .from('whatsapp_config')
         .select('*')
         .eq('account_id', accountId)
-        .single()
-      if (configError || !config) {
+        .eq('is_default', true)
+        .maybeSingle()
+      config = defaultConfig
+      if (!config) {
+        const { data: fallbackConfig } = await supabase
+          .from('whatsapp_config')
+          .select('*')
+          .eq('account_id', accountId)
+          .limit(1)
+          .maybeSingle()
+        config = fallbackConfig
+      }
+      if (!config) {
         return NextResponse.json(
           {
             error:

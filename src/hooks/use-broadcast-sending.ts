@@ -46,6 +46,7 @@ interface BroadcastPayload {
    * falls back to the template's stored URL only when this is empty.
    */
   headerMediaUrl?: string;
+  whatsappConfigId?: string;
 }
 
 interface UseBroadcastSendingReturn {
@@ -353,11 +354,33 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
 
       // ── Step 2: Create broadcast row ──────────────────────────────
       setProgress(10);
+      let resolvedConfigId = payload.whatsappConfigId;
+      if (!resolvedConfigId) {
+        const { data: defaultConfig } = await supabase
+          .from('whatsapp_config')
+          .select('id')
+          .eq('account_id', accountId)
+          .eq('is_default', true)
+          .maybeSingle();
+        if (defaultConfig?.id) {
+          resolvedConfigId = defaultConfig.id;
+        } else {
+          const { data: fallbackConfig } = await supabase
+            .from('whatsapp_config')
+            .select('id')
+            .eq('account_id', accountId)
+            .limit(1)
+            .maybeSingle();
+          resolvedConfigId = fallbackConfig?.id;
+        }
+      }
+
       const { data: broadcast, error: broadcastError } = await supabase
         .from('broadcasts')
         .insert({
           user_id: user.id,
           account_id: accountId,
+          whatsapp_config_id: resolvedConfigId,
           name: payload.name,
           template_name: payload.template.name,
           template_language: payload.template.language ?? 'en_US',
@@ -481,6 +504,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
               recipients: apiRecipients,
               template_name: payload.template.name,
               template_language: payload.template.language ?? 'en_US',
+              whatsapp_config_id: resolvedConfigId,
             }),
           });
 

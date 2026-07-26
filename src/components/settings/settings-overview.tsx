@@ -49,6 +49,7 @@ export function SettingsOverview({
     let cancelled = false;
     const supabase = createClient();
     const userId = user.id;
+    const acctId = accountId;
 
     // Cheap counts — resolve fast, render immediately.
     (async () => {
@@ -95,36 +96,21 @@ export function SettingsOverview({
     // WhatsApp status
     (async () => {
       setWhatsappLoading(true);
-      try {
-        const res = await fetch('/api/whatsapp/config', { cache: 'no-store' });
-        if (!res.ok) {
-          if (!cancelled) {
-            setWhatsapp({ configured: false, connected: false });
-            setWhatsappLoading(false);
-          }
-          return;
-        }
-        const data = await res.json();
-        if (cancelled) return;
-
-        if (!data.configured) {
-          setWhatsapp({ configured: false, connected: false });
-        } else {
-          const testRes = await fetch('/api/whatsapp/test-connection', {
-            method: 'POST',
-            cache: 'no-store',
-          });
-          const testData = await testRes.json();
-          setWhatsapp({
-            configured: true,
-            connected: testRes.ok && testData.status === 'connected',
-          });
-        }
-      } catch {
-        if (!cancelled) setWhatsapp({ configured: false, connected: false });
-      } finally {
-        if (!cancelled) setWhatsappLoading(false);
-      }
+      const [row, health] = await Promise.allSettled([
+        supabase
+          .from('whatsapp_config')
+          .select('phone_number_id')
+          .eq('account_id', acctId)
+          .limit(1)
+          .maybeSingle(),
+        fetch('/api/whatsapp/config', { cache: 'no-store' }).then((r) => r.json()),
+      ]);
+      if (cancelled) return;
+      setWhatsapp({
+        configured: row.status === 'fulfilled' && !!row.value.data?.phone_number_id,
+        connected: health.status === 'fulfilled' && !!health.value?.connected,
+      });
+      setWhatsappLoading(false);
     })();
 
     return () => {

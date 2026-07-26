@@ -190,10 +190,9 @@ export default function InboxPage() {
       const { data } = await supabase
         .from("whatsapp_config")
         .select("status")
-        .eq("account_id", accountId)
-        .maybeSingle();
+        .eq("account_id", accountId);
 
-      setWhatsappConnected(data?.status === "connected");
+      setWhatsappConnected((data ?? []).some((c) => c.status === "connected"));
     };
 
     checkConnection();
