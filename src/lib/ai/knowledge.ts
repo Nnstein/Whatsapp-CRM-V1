@@ -1,7 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { AiConfig } from './types'
+import type { AiConfig, AiProvider } from './types'
 import { chunkText } from './chunk'
 import { embedTexts, toVectorLiteral } from './embeddings'
+import { resolveEmbeddingsBaseUrl } from './defaults'
 
 // ============================================================
 // Knowledge base: ingest (chunk + optionally embed) and hybrid
@@ -12,6 +13,13 @@ import { embedTexts, toVectorLiteral } from './embeddings'
 interface MatchRow {
   id: string
   content: string
+}
+
+export type KnowledgeConfigInput = {
+  embeddingsApiKey?: string | null
+  provider?: AiProvider
+  baseUrl?: string | null
+  embeddingsBaseUrl?: string | null
 }
 
 /**
@@ -27,7 +35,7 @@ interface MatchRow {
 export async function ingestDocument(
   db: SupabaseClient,
   accountId: string,
-  config: Pick<AiConfig, 'embeddingsApiKey'>,
+  config: KnowledgeConfigInput,
   documentId: string,
   content: string,
 ): Promise<void> {
@@ -52,7 +60,8 @@ export async function ingestDocument(
   let embedError: unknown = null
   if (config.embeddingsApiKey) {
     try {
-      embeddings = await embedTexts(config.embeddingsApiKey, chunks)
+      const resolvedEmbeddingsUrl = resolveEmbeddingsBaseUrl(config)
+      embeddings = await embedTexts(config.embeddingsApiKey, chunks, resolvedEmbeddingsUrl)
     } catch (err) {
       embedError = err
     }
@@ -84,7 +93,7 @@ export async function ingestDocument(
 export async function retrieveKnowledge(
   db: SupabaseClient,
   accountId: string,
-  config: Pick<AiConfig, 'embeddingsApiKey'>,
+  config: KnowledgeConfigInput,
   queryText: string,
   k = 5,
 ): Promise<string[]> {
@@ -110,7 +119,8 @@ export async function retrieveKnowledge(
   // Semantic path.
   if (config.embeddingsApiKey) {
     try {
-      const [queryEmbedding] = await embedTexts(config.embeddingsApiKey, [query])
+      const resolvedEmbeddingsUrl = resolveEmbeddingsBaseUrl(config)
+      const [queryEmbedding] = await embedTexts(config.embeddingsApiKey, [query], resolvedEmbeddingsUrl)
       if (queryEmbedding) {
         const { data, error } = await db.rpc('match_ai_knowledge_semantic', {
           p_account_id: accountId,

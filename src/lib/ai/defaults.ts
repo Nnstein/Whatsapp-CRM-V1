@@ -1,4 +1,4 @@
-import type { AiProvider } from './types'
+import type { AiProvider, AiConfig } from './types'
 
 // ============================================================
 // Tunables + prompt scaffold for the AI reply assistant.
@@ -13,6 +13,82 @@ import type { AiProvider } from './types'
 export const AI_PROVIDER_DEFAULT_MODEL: Record<AiProvider, string> = {
   openai: 'gpt-5.4-mini',
   anthropic: 'claude-haiku-4-5-20251001',
+  google: 'gemini-2.0-flash',
+  xai: 'grok-2',
+  kimi: 'moonshot-v1-8k',
+  deepseek: 'deepseek-chat',
+  openrouter: 'google/gemini-2.0-flash-001',
+  custom: '',
+}
+
+/**
+ * Default API root URL per provider.
+ */
+export const AI_PROVIDER_DEFAULT_BASE_URL: Record<AiProvider, string | null> = {
+  openai: 'https://api.openai.com/v1',
+  anthropic: null,
+  google: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  xai: 'https://api.x.ai/v1',
+  kimi: 'https://api.moonshot.cn/v1',
+  deepseek: 'https://api.deepseek.com/v1',
+  openrouter: 'https://openrouter.ai/api/v1',
+  custom: null,
+}
+
+/** Standard OpenAI embeddings endpoint URL for fallback. */
+export const OPENAI_EMBEDDINGS_URL = 'https://api.openai.com/v1'
+
+/**
+ * Helper to clean and normalize a base URL string by removing trailing slashes
+ * or trailing `/chat/completions` if the user pasted a full endpoint.
+ */
+export function normalizeBaseUrl(url: string | null | undefined): string | null {
+  if (!url) return null
+  let trimmed = url.trim()
+  if (!trimmed) return null
+  // Strip trailing slashes
+  trimmed = trimmed.replace(/\/+$/, '')
+  // If user included /chat/completions or /embeddings at the end, strip it
+  trimmed = trimmed.replace(/\/(chat\/completions|embeddings)$/, '')
+  return trimmed
+}
+
+/**
+ * Resolves the chat base URL to use. Returns:
+ * 1. User specified `baseUrl` if set
+ * 2. Provider default base URL if available
+ * 3. OpenAI default fallback
+ */
+export function resolveChatBaseUrl(config: Partial<AiConfig>): string {
+  const custom = normalizeBaseUrl(config.baseUrl)
+  if (custom) return custom
+
+  const provider = config.provider ?? 'openai'
+  const preset = AI_PROVIDER_DEFAULT_BASE_URL[provider]
+  if (preset) return preset
+
+  return AI_PROVIDER_DEFAULT_BASE_URL.openai!
+}
+
+/**
+ * Resolves the embeddings base URL to use. Returns:
+ * 1. User specified `embeddingsBaseUrl` if set
+ * 2. User specified `baseUrl` if set
+ * 3. Provider default base URL if available
+ * 4. OpenAI default fallback
+ */
+export function resolveEmbeddingsBaseUrl(config: Partial<AiConfig>): string {
+  const customEmbed = normalizeBaseUrl(config.embeddingsBaseUrl)
+  if (customEmbed) return customEmbed
+
+  const customChat = normalizeBaseUrl(config.baseUrl)
+  if (customChat) return customChat
+
+  const provider = config.provider ?? 'openai'
+  const preset = AI_PROVIDER_DEFAULT_BASE_URL[provider]
+  if (preset) return preset
+
+  return OPENAI_EMBEDDINGS_URL
 }
 
 /**

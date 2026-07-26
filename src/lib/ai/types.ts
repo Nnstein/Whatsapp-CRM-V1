@@ -3,10 +3,18 @@
 //
 // One small provider-agnostic surface so the inbox draft route and the
 // inbound auto-reply bot both talk to `generateReply` without caring
-// whether the account is on OpenAI or Anthropic.
+// which provider is selected.
 // ============================================================
 
-export type AiProvider = 'openai' | 'anthropic'
+export type AiProvider =
+  | 'openai'
+  | 'anthropic'
+  | 'google'
+  | 'xai'
+  | 'kimi'
+  | 'deepseek'
+  | 'openrouter'
+  | 'custom'
 
 /**
  * Account AI setup, decrypted and ready to use. Produced by
@@ -17,6 +25,8 @@ export interface AiConfig {
   provider: AiProvider
   model: string
   apiKey: string
+  baseUrl?: string | null
+  embeddingsBaseUrl?: string | null
   systemPrompt: string | null
   isActive: boolean
   autoReplyEnabled: boolean
@@ -25,7 +35,15 @@ export interface AiConfig {
    *  knowledge base is embedded and semantic retrieval turns on; when
    *  null, retrieval falls back to lexical full-text search. */
   embeddingsApiKey: string | null
+  /** Master switch for AI-powered contact detail extraction. Defaults
+   *  true — the feature is opt-out so accounts benefit immediately. */
+  autoEnrichContactsEnabled: boolean
+  /** How many inbound messages per conversation to run enrichment on.
+   *  Once this threshold is passed (or the profile is complete) the
+   *  engine silently skips. Bounded 1–20, default 5. */
+  autoEnrichMaxMessages: number
 }
+
 
 /** A single conversation turn in the shape both providers accept. */
 export interface ChatMessage {
