@@ -4,16 +4,19 @@ import { decrypt } from '@/lib/whatsapp/encryption'
 
 import {
   deleteMessageTemplate,
-  isDryRun,
-  updateMessageTemplate,
+  editMessageTemplate,
 } from '@/lib/whatsapp/meta-api'
-import {
-  isComponentArray,
-  validateTemplateFormat,
-} from '@/lib/whatsapp/template-validators'
+import { validateTemplateName } from '@/lib/whatsapp/template-validators'
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function isDryRun(): boolean {
+  return (
+    process.env.WHATSAPP_TEMPLATES_DRY_RUN === 'true' ||
+    process.env.WHATSAPP_TEMPLATES_DRY_RUN === '1'
+  )
+}
 
 export async function PATCH(
   request: Request,
@@ -68,7 +71,7 @@ export async function PATCH(
         { status: 400 },
       )
     }
-    if (!isComponentArray(components)) {
+    if (!Array.isArray(components)) {
       return NextResponse.json(
         { error: 'Components must be an array.' },
         { status: 400 },
@@ -95,14 +98,11 @@ export async function PATCH(
       )
     }
 
-    const validation = validateTemplateFormat({
-      name: existing.name,
-      category,
-      components,
-    })
-    if (!validation.valid) {
+    try {
+      validateTemplateName(existing.name)
+    } catch (valErr) {
       return NextResponse.json(
-        { error: validation.error ?? 'Validation failed.' },
+        { error: valErr instanceof Error ? valErr.message : 'Validation failed.' },
         { status: 400 },
       )
     }
@@ -136,11 +136,11 @@ export async function PATCH(
 
     if (existing.meta_template_id && !isDryRun()) {
       try {
-        await updateMessageTemplate({
+        await editMessageTemplate({
           metaTemplateId: existing.meta_template_id,
           accessToken,
           category: category as any,
-          components,
+          components: components as any,
         })
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Meta update failed.'
