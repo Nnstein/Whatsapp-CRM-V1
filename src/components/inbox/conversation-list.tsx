@@ -48,6 +48,22 @@ const WINDOW_STATUS_COLORS = {
   unknown: "bg-gray-400",
 } as const;
 
+export interface NumberColorStyle {
+  dot: string;
+  text: string;
+  bg: string;
+  border: string;
+}
+
+const NUMBER_COLORS: NumberColorStyle[] = [
+  { dot: "bg-emerald-500", text: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/30" },
+  { dot: "bg-indigo-500", text: "text-indigo-400", bg: "bg-indigo-500/10", border: "border-indigo-500/30" },
+  { dot: "bg-amber-500", text: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/30" },
+  { dot: "bg-rose-500", text: "text-rose-400", bg: "bg-rose-500/10", border: "border-rose-500/30" },
+  { dot: "bg-violet-500", text: "text-violet-400", bg: "bg-violet-500/10", border: "border-violet-500/30" },
+  { dot: "bg-cyan-500", text: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/30" },
+];
+
 type InboxFilter = ConversationStatus | "all" | "unread";
 
 const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = [
@@ -177,6 +193,14 @@ export function ConversationList({
     return m;
   }, [whatsappNumbers]);
 
+  const numberColorsMap = useMemo(() => {
+    const m = new Map<string, NumberColorStyle>();
+    whatsappNumbers.forEach((num, index) => {
+      m.set(num.id, NUMBER_COLORS[index % NUMBER_COLORS.length]);
+    });
+    return m;
+  }, [whatsappNumbers]);
+
   const filtered = useMemo(() => {
     let result = conversations;
 
@@ -242,6 +266,7 @@ export function ConversationList({
 
   const activeFilter = FILTER_OPTIONS.find((o) => o.value === filter);
   const activeNumber = whatsappNumbers.find((n) => n.id === selectedNumberId);
+  const activeNumberColor = activeNumber ? numberColorsMap.get(activeNumber.id) : null;
 
   return (
     // w-full on mobile so the list occupies the whole viewport when it's
@@ -254,7 +279,7 @@ export function ConversationList({
           <DropdownMenu>
             <DropdownMenuTrigger className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-xs font-medium text-foreground bg-muted/60 hover:bg-muted rounded-md border border-border">
               <span className="truncate flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                <span className={cn("h-2 w-2 rounded-full shrink-0", activeNumberColor?.dot ?? "bg-emerald-500")} />
                 {activeNumber ? activeNumber.label : "All Inboxes"}
               </span>
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -267,27 +292,36 @@ export function ConversationList({
                   selectedNumberId === null ? "text-primary font-semibold" : "text-popover-foreground"
                 )}
               >
-                <span>All Inboxes</span>
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                  <span>All Inboxes</span>
+                </div>
                 <span className="text-[10px] text-muted-foreground">{whatsappNumbers.length} numbers</span>
               </DropdownMenuItem>
-              {whatsappNumbers.map((num) => (
-                <DropdownMenuItem
-                  key={num.id}
-                  onClick={() => setSelectedNumberId(num.id)}
-                  className={cn(
-                    "text-xs flex items-center justify-between",
-                    selectedNumberId === num.id ? "text-primary font-semibold" : "text-popover-foreground"
-                  )}
-                >
-                  <div className="flex flex-col min-w-0">
-                    <span className="truncate">{num.label}</span>
-                    <span className="text-[10px] text-muted-foreground truncate">{num.phone_number_id}</span>
-                  </div>
-                  {num.is_default && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium shrink-0">Default</span>
-                  )}
-                </DropdownMenuItem>
-              ))}
+              {whatsappNumbers.map((num) => {
+                const numColor = numberColorsMap.get(num.id);
+                return (
+                  <DropdownMenuItem
+                    key={num.id}
+                    onClick={() => setSelectedNumberId(num.id)}
+                    className={cn(
+                      "text-xs flex items-center justify-between gap-2",
+                      selectedNumberId === num.id ? "text-primary font-semibold" : "text-popover-foreground"
+                    )}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={cn("h-2 w-2 rounded-full shrink-0", numColor?.dot ?? "bg-emerald-500")} />
+                      <div className="flex flex-col min-w-0">
+                        <span className="truncate">{num.label}</span>
+                        <span className="text-[10px] text-muted-foreground truncate">{num.phone_number_id}</span>
+                      </div>
+                    </div>
+                    {num.is_default && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium shrink-0">Default</span>
+                    )}
+                  </DropdownMenuItem>
+                );
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -459,12 +493,7 @@ export function ConversationList({
         )}
       </div>
 
-      {/* Conversation Items.
-          `min-h-0` is load-bearing: a flex child defaults to
-          min-height:auto, so without it this ScrollArea grows to fit
-          every conversation instead of shrinking to the remaining
-          space — the list then overflows and gets clipped by the
-          parent's overflow-hidden with no scrollbar (issue #229). */}
+      {/* Conversation Items */}
       <ScrollArea className="min-h-0 flex-1">
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -483,6 +512,7 @@ export function ConversationList({
                 isActive={conv.id === activeConversationId}
                 onSelect={handleSelect}
                 numberLabel={whatsappNumbers.length > 1 ? numbersMap.get(conv.whatsapp_config_id)?.label : undefined}
+                numberColor={whatsappNumbers.length > 1 ? numberColorsMap.get(conv.whatsapp_config_id) : undefined}
               />
             ))}
           </div>
@@ -497,6 +527,7 @@ interface ConversationItemProps {
   isActive: boolean;
   onSelect: (conversation: Conversation) => void;
   numberLabel?: string;
+  numberColor?: NumberColorStyle;
 }
 
 function ConversationItem({
@@ -504,6 +535,7 @@ function ConversationItem({
   isActive,
   onSelect,
   numberLabel,
+  numberColor,
 }: ConversationItemProps) {
   const contact = conversation.contact;
   const displayName = contact?.name || contact?.phone || "Unknown";
@@ -519,10 +551,6 @@ function ConversationItem({
       })
     : "";
 
-  // Compute window status from the DB column (set by the webhook on every
-  // inbound customer message). This is more reliable than client-side
-  // computation from the message list because the list only holds messages
-  // that have been fetched into the client.
   const now = Date.now();
   const windowExpires = conversation.window_expires_at
     ? new Date(conversation.window_expires_at).getTime()
@@ -548,7 +576,7 @@ function ConversationItem({
       )}
     >
       {/* Avatar */}
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground relative">
         {contact?.avatar_url ? (
           <img
             src={contact.avatar_url}
@@ -568,7 +596,13 @@ function ConversationItem({
               {displayName}
             </span>
             {numberLabel && (
-              <span className="shrink-0 rounded bg-muted/80 border border-border/80 px-1 py-0.5 text-[9px] text-muted-foreground font-mono">
+              <span className={cn(
+                "shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-mono font-medium flex items-center gap-1",
+                numberColor
+                  ? `${numberColor.bg} ${numberColor.text} ${numberColor.border}`
+                  : "bg-muted/80 border-border/80 text-muted-foreground"
+              )}>
+                {numberColor && <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", numberColor.dot)} />}
                 {numberLabel}
               </span>
             )}

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCurrency } from '@/lib/currency';
 import { toast } from 'sonner';
-import type { Contact, Tag, ContactTag, ContactNote, CustomField, ContactCustomValue, Deal, MessageTemplate } from '@/types';
+import type { Contact, Tag, ContactTag, ContactNote, CustomField, ContactCustomValue, Deal, MessageTemplate, WhatsAppConfig } from '@/types';
 import {
   TemplatePicker,
   type TemplateSendValues,
@@ -65,6 +65,10 @@ export function ContactDetailView({
   // find-or-creates the conversation, so no inbound message is required.
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [sendingTemplate, setSendingTemplate] = useState(false);
+  // Available WhatsApp numbers for the current user — loaded once when the
+  // panel opens. Admin/owner see all numbers (API returns all); agents see
+  // only their assigned number(s).
+  const [whatsappNumbers, setWhatsappNumbers] = useState<WhatsAppConfig[]>([]);
 
   // Details tab
   const [editName, setEditName] = useState('');
@@ -184,6 +188,16 @@ export function ContactDetailView({
       fetchNotes();
       fetchCustomFields();
       fetchDeals();
+    }
+    if (open && whatsappNumbers.length === 0) {
+      fetch('/api/account/whatsapp-numbers')
+        .then((r) => r.json())
+        .then((d) => {
+          if (Array.isArray(d.whatsapp_numbers)) {
+            setWhatsappNumbers(d.whatsapp_numbers as WhatsAppConfig[]);
+          }
+        })
+        .catch(() => {/* non-critical */});
     }
   }, [open, contactId, fetchContact, fetchTags, fetchNotes, fetchCustomFields, fetchDeals]);
 
@@ -342,6 +356,9 @@ export function ContactDetailView({
           // No conversation_id — the route find-or-creates one for this
           // contact, mirroring the inbox template-send payload otherwise.
           contact_id: contactId,
+          // When the user picked a specific number in the multi-number picker,
+          // send from that config. Otherwise the API uses the account default.
+          whatsapp_config_id: values.configId ?? undefined,
           message_type: 'template',
           template_name: template.name,
           template_language: template.language,
@@ -757,6 +774,7 @@ export function ContactDetailView({
       open={templatePickerOpen}
       onOpenChange={setTemplatePickerOpen}
       onSelect={handleSendTemplate}
+      whatsappNumbers={whatsappNumbers}
     />
     </>
   );

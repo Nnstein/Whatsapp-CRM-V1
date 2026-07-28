@@ -62,7 +62,10 @@ export function validateTemplateName(name: string): void {
  * `[1, 2, 4]` for `"Hi {{1}} {{2}}, item {{4}}"`.
  */
 export function extractVariableIndices(text: string): number[] {
-  const matches = text.matchAll(/\{\{(\d+)\}\}/g);
+  // Accept both {{1}} and {{ 1 }} — Meta occasionally pads with spaces
+  // in synced template text, causing the old tight regex to return 0
+  // variables and skip the fill-in step → #132000 parameter mismatch.
+  const matches = text.matchAll(/\{\{\s*(\d+)\s*\}\}/g);
   const set = new Set<number>();
   for (const m of matches) {
     const n = Number(m[1]);
@@ -70,6 +73,7 @@ export function extractVariableIndices(text: string): number[] {
   }
   return [...set].sort((a, b) => a - b);
 }
+
 
 /**
  * Meta requires contiguous, 1-indexed variables. `{{1}} {{3}}` is

@@ -130,19 +130,23 @@ function buildBodyComponent(
   const varCount = extractVariableIndices(template.body_text).length;
   const body = params.body ?? [];
   if (varCount === 0 && body.length === 0) return null;
-  if (body.length < varCount) {
+  // If the caller supplied values but local body_text parsed 0 variables,
+  // the local template may be stale — Meta's copy may have more. Emit the
+  // component anyway so the send reaches Meta with the user's provided values
+  // rather than silently omitting them (which produces a #132000).
+  const values = varCount > 0 ? body.slice(0, varCount) : body;
+  if (values.length === 0) return null;
+  if (varCount > 0 && body.length < varCount) {
     throw new Error(
       `Body has ${varCount} variable(s) but only ${body.length} value(s) were supplied.`,
     );
   }
-  // Trim to the variable count — extra values are dropped silently so
-  // a legacy caller that passes too many doesn't error out.
-  const values = body.slice(0, varCount);
   return {
     type: 'body',
     parameters: values.map((text) => ({ type: 'text', text: String(text) })),
   };
 }
+
 
 function buttonNeedsSendParam(
   button: TemplateButton,
