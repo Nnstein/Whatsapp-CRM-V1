@@ -28,7 +28,7 @@ import {
  * rather than a generic error toast. The combined `live` flag is
  * what the UI badges on.
  */
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createClient()
   const {
     data: { user },
@@ -38,9 +38,6 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // whatsapp_config is one-row-per-account post-017. Resolve the
-  // caller's account_id so a teammate who joined an existing account
-  // sees the same registration state as the admin who set it up.
   const { data: profile } = await supabase
     .from('profiles')
     .select('account_id')
@@ -55,11 +52,19 @@ export async function GET() {
     })
   }
 
-  const { data: config } = await supabase
+  // Support ?id=<uuid> to verify a specific config row (multi-number).
+  // Falls back to the account's default / only row for backwards compatibility.
+  const { searchParams } = new URL(request.url)
+  const configId = searchParams.get('id')
+
+  const query = supabase
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', accountId)
-    .maybeSingle()
+
+  const { data: config } = configId
+    ? await query.eq('id', configId).maybeSingle()
+    : await query.maybeSingle()
 
   if (!config) {
     return NextResponse.json({
@@ -119,10 +124,6 @@ export async function GET() {
         wabaId: config.waba_id,
         accessToken,
       })
-      // Meta returns the apps subscribed to this WABA. If the list
-      // is non-empty, OUR app is in there (the access_token we used
-      // belongs to our app — Meta wouldn't return data for an app
-      // the token can't see). Treat any entry as success.
       checks.waba_subscribed_to_app = subs.length > 0
       if (!checks.waba_subscribed_to_app) {
         errors.push(
@@ -154,3 +155,4 @@ export async function GET() {
     subscribed_apps_at: config.subscribed_apps_at ?? null,
   })
 }
+

@@ -17,6 +17,7 @@ import {
   Edit2,
   Star,
   Check,
+  ShieldCheck,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
@@ -44,9 +45,18 @@ export function WhatsAppConfig() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [resettingId, setResettingId] = useState<string | null>(null);
   const [showToken, setShowToken] = useState(false);
   const [configs, setConfigs] = useState<WhatsAppConfigType[]>([]);
+  // Map of cfgId → verify result payload
+  const [verifyResults, setVerifyResults] = useState<Record<string, {
+    live: boolean;
+    checks: { token_decryptable?: boolean; phone_metadata_ok?: boolean; waba_subscribed_to_app?: boolean | null; locally_marked_registered?: boolean };
+    errors: string[];
+    registered_at: string | null;
+    subscribed_apps_at: string | null;
+  }>>({});
 
   // Editing state (null = list view / adding new if isAdding = true)
   const [editingConfig, setEditingConfig] = useState<WhatsAppConfigType | null>(null);
@@ -232,6 +242,30 @@ export function WhatsAppConfig() {
     }
   }
 
+  async function handleVerify(cfgId: string) {
+    try {
+      setVerifyingId(cfgId);
+      const res = await fetch(`/api/whatsapp/config/verify-registration?id=${cfgId}`);
+      const data = await res.json();
+      setVerifyResults((prev) => ({ ...prev, [cfgId]: data }));
+      if (data.live) {
+        toast.success('Verified — Meta is delivering events to this number.');
+      } else if (data.checks?.token_decryptable === false) {
+        toast.error('Could not decrypt stored token — re-enter it in Edit.');
+      } else {
+        toast.warning(
+          data.errors?.[0] ?? 'Verification complete — see status below.',
+          { duration: 8000 },
+        );
+      }
+    } catch (err) {
+      console.error('verify-registration failed:', err);
+      toast.error('Could not reach the verification endpoint.');
+    } finally {
+      setVerifyingId(null);
+    }
+  }
+
   async function handleDelete(cfgId: string, label: string) {
     if (!confirm(`Are you sure you want to delete "${label}"? This will remove the WhatsApp connection.`)) {
       return;
@@ -377,15 +411,76 @@ export function WhatsAppConfig() {
                           </Button>
                         </div>
                       </CardHeader>
-                      <CardContent className="pt-0 text-xs text-muted-foreground flex items-center justify-between border-t border-border/50 mt-2 py-2">
-                        <span>
-                          {isRegistered
-                            ? 'Webhook registered — Inbound messages active'
-                            : 'Webhook not registered (enter PIN to enable inbound routing)'}
-                        </span>
-                        <span className="text-[11px]">
-                          {cfg.connected_at ? `Linked ${new Date(cfg.connected_at).toLocaleDateString()}` : ''}
-                        </span>
+                      <CardContent className="pt-0 space-y-2 border-t border-border/50 mt-2 py-3">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>
+                            {isRegistered
+                              ? 'Webhook registered — Inbound messages active'
+                              : 'Webhook not registered (enter PIN to enable inbound routing)'}
+                          </span>
+                          <span className="text-[11px]">
+                            {cfg.connected_at ? `Linked ${new Date(cfg.connected_at).toLocaleDateString()}` : ''}
+                          </span>
+                        </div>
+
+                        {/* Verify with Meta — inline status panel */}
+                        {verifyResults[cfg.id] && (() => {
+                          const v = verifyResults[cfg.id];
+                          return (
+                            <div className={`rounded-md border px-3 py-2 text-xs space-y-1.5 ${
+                              v.live
+                                ? 'border-emerald-600/40 bg-emerald-950/20'
+                                : 'border-amber-600/40 bg-amber-950/20'
+                            }`}>
+                              <div className="flex items-center gap-1.5 font-medium">
+                                {v.checks.token_decryptable !== false && v.checks.phone_metadata_ok
+                                  ? <CheckCircle2 className="size-3.5 text-emerald-400" />
+                                  : <XCircle className="size-3.5 text-red-400" />}
+                                <span className={v.checks.token_decryptable !== false && v.checks.phone_metadata_ok ? 'text-emerald-300' : 'text-red-300'}>
+                                  {v.checks.token_decryptable !== false && v.checks.phone_metadata_ok
+                                    ? 'Credentials valid'
+                                    : 'Credentials invalid'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                {v.live
+                                  ? <CheckCircle2 className="size-3.5 text-emerald-400" />
+                                  : <XCircle className="size-3.5 text-amber-400" />}
+                                <span className={v.live ? 'text-emerald-300' : 'text-amber-300'}>
+                                  {v.live
+                                    ? `Registered — Meta will deliver events to wacrm`
+                                    : 'Not fully registered with Meta'}
+                                </span>
+                              </div>
+                              {v.registered_at && (
+                                <p className="text-muted-foreground pl-5">
+                                  Subscribed since {new Date(v.registered_at).toLocaleString()}.
+                                  {v.live ? ' Click Verify with Meta if events stop arriving.' : ''}
+                                </p>
+                              )}
+                              {v.errors.length > 0 && (
+                                <ul className="pl-5 space-y-0.5 text-amber-400">
+                                  {v.errors.map((e, i) => <li key={i}>{e}</li>)}
+                                </ul>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        <div className="flex justify-end pt-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleVerify(cfg.id)}
+                            disabled={verifyingId === cfg.id}
+                            className="h-7 text-xs border-border text-muted-foreground hover:text-foreground"
+                          >
+                            {verifyingId === cfg.id
+                              ? <Loader2 className="size-3 animate-spin mr-1" />
+                              : <ShieldCheck className="size-3 mr-1 text-primary" />}
+                            Verify with Meta
+                          </Button>
+                        </div>
                       </CardContent>
                     </Card>
                   );
