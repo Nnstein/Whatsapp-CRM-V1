@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { MessageTemplate } from "@/types";
+import type { MessageTemplate, WhatsAppConfig } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +20,7 @@ import {
   ChevronRight,
   LayoutTemplate,
   Loader2,
+  Phone,
 } from "lucide-react";
 import { extractVariableIndices } from "@/lib/whatsapp/template-validators";
 
@@ -27,12 +28,23 @@ export interface TemplateSendValues {
   body: string[];
   headerText?: string;
   buttonParams?: Record<number, string>;
+  /** The whatsapp_config row the user selected (only set when multi-number). */
+  configId?: string;
 }
 
 interface TemplatePickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (template: MessageTemplate, values: TemplateSendValues) => void;
+  /**
+   * When provided and has 2+ entries, the picker shows a number-selection
+   * step before the template list so the sender can choose which WhatsApp
+   * number to initiate the conversation from.
+   * Pass only the numbers the current user is allowed to use.
+   */
+  whatsappNumbers?: WhatsAppConfig[];
+  /** Pre-selected config id — skips the number-picker step. */
+  preselectedConfigId?: string;
 }
 
 function renderBodyPreview(body: string, params: string[]): string {
@@ -77,6 +89,8 @@ export function TemplatePicker({
   open,
   onOpenChange,
   onSelect,
+  whatsappNumbers,
+  preselectedConfigId,
 }: TemplatePickerProps) {
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,6 +98,13 @@ export function TemplatePicker({
   const [params, setParams] = useState<string[]>([]);
   const [headerText, setHeaderText] = useState<string>("");
   const [buttonParams, setButtonParams] = useState<Record<number, string>>({});
+  // Number selection step (only used when whatsappNumbers has 2+ entries)
+  const [selectedConfigId, setSelectedConfigId] = useState<string | null>(
+    preselectedConfigId ?? null,
+  );
+
+  const needsNumberPick =
+    (whatsappNumbers?.length ?? 0) > 1 && selectedConfigId === null;
 
   useEffect(() => {
     if (!open) return;
@@ -137,7 +158,11 @@ export function TemplatePicker({
   }
 
   function handleOpenChange(next: boolean) {
-    if (!next) resetSelection();
+    if (!next) {
+      resetSelection();
+      // Reset number selection too unless a preselected id was given
+      setSelectedConfigId(preselectedConfigId ?? null);
+    }
     onOpenChange(next);
   }
 
@@ -167,6 +192,7 @@ export function TemplatePicker({
         Object.entries(buttonParams).map(([k, v]) => [Number(k), v.trim()]),
       );
     }
+    if (selectedConfigId) values.configId = selectedConfigId;
     onSelect(selected, values);
     handleOpenChange(false);
   }
@@ -184,22 +210,60 @@ export function TemplatePicker({
       (s) => (buttonParams[s.index] ?? "").trim().length > 0,
     );
 
+  const selectedNumber = whatsappNumbers?.find((n) => n.id === selectedConfigId);
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="border-border bg-popover sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-popover-foreground">
             <LayoutTemplate className="h-4 w-4 text-primary" />
-            {selected ? selected.name : "Send template"}
+            {needsNumberPick
+              ? "Choose a WhatsApp number"
+              : selected
+              ? selected.name
+              : "Send template"}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            {selected
+            {needsNumberPick
+              ? "Select which phone number to initiate this conversation from."
+              : selected
               ? "Fill in the placeholders to render this template. Meta requires every variable to be set."
               : "Pick an approved WhatsApp template to send to this contact."}
           </DialogDescription>
         </DialogHeader>
 
-        {!selected ? (
+        {needsNumberPick ? (
+          /* Step 0 — number picker (admin/owner only, 2+ numbers) */
+          <div className="space-y-2">
+            {whatsappNumbers!.map((num) => (
+              <button
+                key={num.id}
+                type="button"
+                onClick={() => setSelectedConfigId(num.id)}
+                className="w-full rounded-md border border-border bg-background/50 p-3 text-left transition-colors hover:border-primary/40 hover:bg-popover flex items-center gap-3"
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                  <Phone className="h-4 w-4 text-primary" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-popover-foreground">
+                    {num.label}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground font-mono">
+                    ID: {num.phone_number_id}
+                  </p>
+                </div>
+                {num.is_default && (
+                  <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                    Default
+                  </span>
+                )}
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </button>
+            ))}
+          </div>
+        ) : !selected ? (
           <div className="max-h-[60vh] space-y-2 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center py-8">
@@ -312,6 +376,12 @@ export function TemplatePicker({
         )}
 
         <DialogFooter className="gap-2">
+          {selectedNumber && !needsNumberPick && (
+            <div className="mr-auto flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Phone className="h-3 w-3" />
+              <span className="truncate max-w-28">{selectedNumber.label}</span>
+            </div>
+          )}
           {selected ? (
             <>
               <Button
@@ -330,7 +400,7 @@ export function TemplatePicker({
                 Send template
               </Button>
             </>
-          ) : (
+          ) : needsNumberPick ? (
             <Button
               variant="outline"
               onClick={() => handleOpenChange(false)}
@@ -338,6 +408,26 @@ export function TemplatePicker({
             >
               Cancel
             </Button>
+          ) : (
+            <>
+              {whatsappNumbers && whatsappNumbers.length > 1 && (
+                <Button
+                  variant="outline"
+                  onClick={() => setSelectedConfigId(null)}
+                  className="border-border text-popover-foreground hover:bg-muted"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Change number
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => handleOpenChange(false)}
+                className="border-border text-popover-foreground hover:bg-muted"
+              >
+                Cancel
+              </Button>
+            </>
           )}
         </DialogFooter>
       </DialogContent>
