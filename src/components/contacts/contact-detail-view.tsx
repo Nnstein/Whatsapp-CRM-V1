@@ -373,8 +373,11 @@ export function ContactDetailView({
 
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const reason = payload?.error || `HTTP ${res.status}`;
-        toast.error(`Failed to send template: ${reason}`);
+        let reason = payload?.error || `HTTP ${res.status}`;
+        if (reason.includes('#132000') || reason.includes('Number of parameters does not match')) {
+          reason += ' — Go to Settings → Templates and click "Sync from Meta" to update local template definitions.';
+        }
+        toast.error(`Failed to send template: ${reason}`, { duration: 10000 });
         return;
       }
 
@@ -604,7 +607,7 @@ export function ContactDetailView({
                     value={newNote}
                     onChange={(e) => setNewNote(e.target.value)}
                     placeholder="Write a note..."
-                    className="bg-muted border-border text-foreground placeholder:text-muted-foreground min-h-[60px] text-sm resize-none"
+                    className="bg-muted border-border text-foreground placeholder:text-muted-foreground min-h-15 text-sm resize-none"
                   />
                   <Button
                     onClick={addNote}
