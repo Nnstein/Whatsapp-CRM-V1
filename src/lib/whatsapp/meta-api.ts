@@ -337,6 +337,7 @@ import type { MessageTemplate } from '@/types'
 import {
   buildSendComponents,
   type SendTimeParams,
+  type MetaSendComponent,
 } from './template-send-builder'
 
 export interface SendTemplateMessageArgs {
@@ -415,14 +416,42 @@ export async function sendTemplateMessage(
     if (components.length > 0) {
       templatePayload.components = components
     }
-  } else if (params && params.length > 0) {
-    // Legacy body-only path — no template row available.
-    templatePayload.components = [
-      {
+  } else {
+    // Fallback when local template row is missing:
+    // Extract components from messageParams or params so parameters reach Meta.
+    const components: MetaSendComponent[] = []
+    const bodyValues = messageParams?.body ?? params
+
+    if (messageParams?.headerText) {
+      components.push({
+        type: 'header',
+        parameters: [{ type: 'text', text: messageParams.headerText }],
+      })
+    }
+
+    if (bodyValues && bodyValues.length > 0) {
+      components.push({
         type: 'body',
-        parameters: params.map((p) => ({ type: 'text', text: String(p) })),
-      },
-    ]
+        parameters: bodyValues.map((p) => ({ type: 'text', text: String(p) })),
+      })
+    }
+
+    if (messageParams?.buttonParams) {
+      Object.entries(messageParams.buttonParams).forEach(([idxStr, val]) => {
+        if (val) {
+          components.push({
+            type: 'button',
+            sub_type: 'url',
+            index: idxStr,
+            parameters: [{ type: 'text', text: val }],
+          })
+        }
+      })
+    }
+
+    if (components.length > 0) {
+      templatePayload.components = components
+    }
   }
 
   const body: Record<string, unknown> = {

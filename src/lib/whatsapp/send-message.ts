@@ -308,13 +308,26 @@ export async function sendMessageToConversation(
   // guards against a malformed local row crashing the send-builder.
   let templateRow: MessageTemplate | null = null;
   if (messageType === 'template' && templateName) {
-    const { data } = await db
+    let { data } = await db
       .from('message_templates')
       .select('*')
       .eq('account_id', accountId)
       .eq('name', templateName)
       .eq('language', templateLanguage || 'en_US')
       .maybeSingle();
+
+    if (!data) {
+      // Fallback: search by name within account regardless of language variant
+      const { data: fallback } = await db
+        .from('message_templates')
+        .select('*')
+        .eq('account_id', accountId)
+        .eq('name', templateName)
+        .limit(1)
+        .maybeSingle();
+      data = fallback;
+    }
+
     if (data && !isMessageTemplate(data)) {
       throw new SendMessageError(
         'template_malformed',
