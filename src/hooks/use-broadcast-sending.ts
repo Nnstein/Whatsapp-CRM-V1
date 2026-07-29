@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { Contact, MessageTemplate } from '@/types';
@@ -589,11 +590,11 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       // Aggregate counts are maintained by the DB trigger (migration
       // 003); we only flip the final status here.
       setProgress(95);
-      const finalStatus = failedCount === totalRecipients ? 'failed' : 'sent';
-      await supabase
-        .from('broadcasts')
-        .update({ status: finalStatus })
-        .eq('id', broadcast.id);
+      if (failedCount > 0) {
+        toast.error(
+          `Broadcast completed with ${failedCount} recipient failure(s). Check error column for details.`,
+        );
+      }
 
       setProgress(100);
       return broadcast.id;

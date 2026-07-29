@@ -181,13 +181,24 @@ export async function POST(request: Request) {
     // the loop would N+1 against Supabase for every recipient.
     // Guard against a malformed local row crashing every send in
     // the loop with the same opaque TypeError — fail loudly once.
-    const { data: rawTemplateRow } = await supabase
+    let { data: rawTemplateRow } = await supabase
       .from('message_templates')
       .select('*')
       .eq('account_id', accountId)
       .eq('name', template_name)
       .eq('language', template_language || 'en_US')
       .maybeSingle()
+
+    if (!rawTemplateRow) {
+      const { data: fallback } = await supabase
+        .from('message_templates')
+        .select('*')
+        .eq('account_id', accountId)
+        .eq('name', template_name)
+        .limit(1)
+        .maybeSingle()
+      rawTemplateRow = fallback
+    }
     if (rawTemplateRow && !isMessageTemplate(rawTemplateRow)) {
       return NextResponse.json(
         {
@@ -239,12 +250,18 @@ export async function POST(request: Request) {
           break
         } catch (error) {
           const errorMessage =
-            error instanceof Error ? error.message : 'Unknown error'
+            error instanceof Error
+              ? error.message
+              : typeof error === 'string'
+              ? error
+              : error && typeof error === 'object' && 'message' in error
+              ? String((error as { message: unknown }).message)
+              : 'Unknown Meta API error';
           if (!isRecipientNotAllowedError(errorMessage)) {
-            lastError = errorMessage
-            break
+            lastError = errorMessage;
+            break;
           }
-          lastError = errorMessage
+          lastError = errorMessage;
           // retry with next variant
         }
       }
