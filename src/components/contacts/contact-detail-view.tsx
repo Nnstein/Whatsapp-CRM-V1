@@ -777,6 +777,7 @@ export function ContactDetailView({
       open={templatePickerOpen}
       onOpenChange={setTemplatePickerOpen}
       onSelect={handleSendTemplate}
+      contact={contact}
       whatsappNumbers={whatsappNumbers}
     />
     </>
