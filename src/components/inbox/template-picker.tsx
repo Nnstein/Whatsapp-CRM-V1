@@ -48,10 +48,12 @@ interface TemplatePickerProps {
 }
 
 function renderBodyPreview(body: string, params: string[]): string {
-  return body.replace(/\{\{(\d+)\}\}/g, (_, raw) => {
-    const idx = Number(raw) - 1;
+  let paramIdx = 0;
+  return body.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, raw) => {
+    const numeric = Number(raw);
+    const idx = Number.isFinite(numeric) && numeric >= 1 ? numeric - 1 : paramIdx++;
     const value = params[idx];
-    return value && value.trim().length > 0 ? value : `{{${raw}}}`;
+    return value && value.trim().length > 0 ? value : match;
   });
 }
 

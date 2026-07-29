@@ -32,14 +32,25 @@ export interface MetaPhoneInfo {
 }
 
 interface MetaErrorResponse {
-  error?: { message?: string; code?: number; type?: string }
+  error?: {
+    message?: string
+    code?: number
+    type?: string
+    error_data?: { details?: string }
+  }
 }
 
 async function throwMetaError(response: Response, fallback: string): Promise<never> {
   let message = fallback
   try {
     const data = (await response.json()) as MetaErrorResponse
-    if (data.error?.message) message = data.error.message
+    if (data.error) {
+      console.error('[Meta API Error Detail]:', JSON.stringify(data.error, null, 2))
+      const details = data.error.error_data?.details
+      message = data.error.message
+        ? `${data.error.message}${details ? ` (${details})` : ''}`
+        : fallback
+    }
   } catch {
     // response body wasn't JSON — keep the fallback
   }
@@ -474,6 +485,10 @@ export async function sendTemplateMessage(
     body: JSON.stringify(body),
   })
   if (!response.ok) {
+    console.error(
+      `[sendTemplateMessage] Meta POST ${url} failed (${response.status}):`,
+      JSON.stringify(body, null, 2),
+    )
     await throwMetaError(response, `Meta API error: ${response.status}`)
   }
   const data = await response.json()
