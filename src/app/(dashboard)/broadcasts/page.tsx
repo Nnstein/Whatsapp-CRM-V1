@@ -56,10 +56,43 @@ function RateCell({
   );
 }
 
+interface SenderProfile {
+  full_name: string | null;
+  email: string | null;
+  account_role: string | null;
+}
+
+interface WhatsAppNumberMeta {
+  label: string;
+  phone_number_id: string;
+}
+
+function RoleBadge({ role }: { role?: string | null }) {
+  if (!role) return null;
+  const normalized = role.toLowerCase();
+  const styles: Record<string, string> = {
+    owner: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+    admin: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    agent: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  };
+  const cls = styles[normalized] ?? 'bg-muted text-muted-foreground border-border';
+  const label = normalized.charAt(0).toUpperCase() + normalized.slice(1);
+
+  return (
+    <span
+      className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase ${cls}`}
+    >
+      {label}
+    </span>
+  );
+}
+
 export default function BroadcastsPage() {
   const router = useRouter();
   const canCreate = useCan('send-messages');
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
+  const [profilesMap, setProfilesMap] = useState<Record<string, SenderProfile>>({});
+  const [configsMap, setConfigsMap] = useState<Record<string, WhatsAppNumberMeta>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,7 +108,69 @@ export default function BroadcastsPage() {
         .order('created_at', { ascending: false });
 
       if (fetchError) throw fetchError;
-      setBroadcasts(data ?? []);
+      const rows = (data ?? []) as Broadcast[];
+      const healed = rows.map((b) => {
+        if (
+          b.status === 'sending' &&
+          b.total_recipients > 0 &&
+          (b.sent_count + b.failed_count) >= b.total_recipients
+        ) {
+          const nextStatus =
+            b.failed_count === b.total_recipients ? 'failed' : 'sent';
+          supabase
+            .from('broadcasts')
+            .update({ status: nextStatus })
+            .eq('id', b.id)
+            .then(() => {});
+          return { ...b, status: nextStatus as Broadcast['status'] };
+        }
+        return b;
+      });
+      setBroadcasts(healed);
+
+      // Fetch profiles & whatsapp configs for sender tagging
+      const userIds = [...new Set(healed.map((b) => b.user_id).filter(Boolean))];
+      const configIds = [
+        ...new Set(healed.map((b) => b.whatsapp_config_id).filter(Boolean)),
+      ] as string[];
+
+      const [profilesRes, configsRes] = await Promise.all([
+        userIds.length > 0
+          ? supabase
+              .from('profiles')
+              .select('user_id, full_name, email, account_role')
+              .in('user_id', userIds)
+          : Promise.resolve({ data: [] }),
+        configIds.length > 0
+          ? supabase
+              .from('whatsapp_config')
+              .select('id, label, phone_number_id')
+              .in('id', configIds)
+          : Promise.resolve({ data: [] }),
+      ]);
+
+      const profMap: Record<string, SenderProfile> = {};
+      for (const p of (profilesRes.data ?? []) as any[]) {
+        if (p.user_id) {
+          profMap[p.user_id] = {
+            full_name: p.full_name,
+            email: p.email,
+            account_role: p.account_role,
+          };
+        }
+      }
+      setProfilesMap(profMap);
+
+      const cfgMap: Record<string, WhatsAppNumberMeta> = {};
+      for (const c of (configsRes.data ?? []) as any[]) {
+        if (c.id) {
+          cfgMap[c.id] = {
+            label: c.label,
+            phone_number_id: c.phone_number_id,
+          };
+        }
+      }
+      setConfigsMap(cfgMap);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load broadcasts');
     } finally {
@@ -219,6 +314,8 @@ export default function BroadcastsPage() {
               <TableRow className="border-border hover:bg-transparent">
                 <TableHead className="text-muted-foreground">Name</TableHead>
                 <TableHead className="hidden text-muted-foreground md:table-cell">Template</TableHead>
+                <TableHead className="hidden text-muted-foreground sm:table-cell">Sender / Role</TableHead>
+                <TableHead className="hidden text-muted-foreground md:table-cell">WhatsApp Number</TableHead>
                 <TableHead className="hidden text-right text-muted-foreground sm:table-cell">
                   Recipients
                 </TableHead>
@@ -231,6 +328,11 @@ export default function BroadcastsPage() {
             <TableBody>
               {broadcasts.map((broadcast) => {
                 const status = getBroadcastStatus(broadcast.status);
+                const prof = profilesMap[broadcast.user_id];
+                const cfg = broadcast.whatsapp_config_id
+                  ? configsMap[broadcast.whatsapp_config_id]
+                  : undefined;
+
                 return (
                   <TableRow
                     key={broadcast.id}
@@ -242,6 +344,28 @@ export default function BroadcastsPage() {
                     </TableCell>
                     <TableCell className="hidden text-muted-foreground md:table-cell">
                       {broadcast.template_name}
+                    </TableCell>
+                    <TableCell className="hidden text-muted-foreground sm:table-cell">
+                      {prof ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-foreground font-medium">
+                            {prof.full_name || prof.email || 'Unknown'}
+                          </span>
+                          <RoleBadge role={prof.account_role} />
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden text-muted-foreground md:table-cell">
+                      {cfg ? (
+                        <div>
+                          <p className="text-xs font-medium text-foreground">{cfg.label}</p>
+                          <p className="text-[10px] text-muted-foreground font-mono">{cfg.phone_number_id}</p>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Default Number</span>
+                      )}
                     </TableCell>
                     <TableCell className="hidden text-right text-muted-foreground tabular-nums sm:table-cell">
                       {broadcast.total_recipients}
