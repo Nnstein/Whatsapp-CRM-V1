@@ -58,25 +58,53 @@ export function validateTemplateName(name: string): void {
 }
 
 /**
- * Extract sorted, deduplicated {{N}} indices from a string. Returns
- * `[1, 2, 4]` for `"Hi {{1}} {{2}}, item {{4}}"`.
+ * Describes a single template variable occurrence — either numeric
+ * (`{{1}}`) or named (`{{customer_name}}`).
  */
-export function extractVariableIndices(text: string): number[] {
-  // Accept {{1}}, {{ 1 }}, and named variables like {{name}} or {{ customer_name }}
+export interface TemplateVariableToken {
+  /** 1-based position in the fill-in order. */
+  index: number;
+  /**
+   * For named variables: the raw identifier (`"customer_name"`).
+   * For numeric variables (`{{1}}`): null.
+   * Meta requires `parameter_name` in the send-component for named vars.
+   */
+  name: string | null;
+}
+
+/**
+ * Extract every unique variable token from a template body/header in
+ * the order they appear. De-duplicates by raw token value.
+ *
+ * Returns `[{index:1,name:null},{index:2,name:"company"}]` for:
+ *   `"Hi {{1}}, rep from {{company}}"`
+ */
+export function extractVariableTokens(text: string): TemplateVariableToken[] {
   const matches = text.matchAll(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g);
-  const set = new Set<number>();
-  let nextNamedIndex = 1;
+  const seen = new Map<string, TemplateVariableToken>();
+  let nextIndex = 1;
   for (const m of matches) {
     const raw = m[1];
-    const n = Number(raw);
-    if (Number.isFinite(n) && n >= 1) {
-      set.add(n);
-    } else {
-      while (set.has(nextNamedIndex)) nextNamedIndex++;
-      set.add(nextNamedIndex);
+    if (seen.has(raw)) continue;
+    const numeric = Number(raw);
+    const isNumeric = Number.isFinite(numeric) && numeric >= 1;
+    const idx = isNumeric ? numeric : nextIndex;
+    if (!isNumeric) {
+      while ([...seen.values()].some((t) => t.index === nextIndex)) nextIndex++;
     }
+    seen.set(raw, { index: idx, name: isNumeric ? null : raw });
+    if (!isNumeric) nextIndex++;
   }
-  return [...set].sort((a, b) => a - b);
+  return [...seen.values()].sort((a, b) => a.index - b.index);
+}
+
+/**
+ * Extract sorted, deduplicated {{N}} indices from a string. Returns
+ * `[1, 2, 4]` for `"Hi {{1}} {{2}}, item {{4}}"`.
+ * @see extractVariableTokens for the richer form that preserves names.
+ */
+export function extractVariableIndices(text: string): number[] {
+  return extractVariableTokens(text).map((t) => t.index);
 }
 
 
