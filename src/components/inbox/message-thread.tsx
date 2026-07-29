@@ -28,6 +28,7 @@ import {
   PanelRightClose,
 } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
+import { renderTemplateBody } from "@/lib/whatsapp/template-validators";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -55,12 +56,6 @@ interface ReplyDraft {
   preview: string;
 }
 
-function renderTemplateBody(body: string, params: string[]): string {
-  return body.replace(/\{\{(\d+)\}\}/g, (_, raw) => {
-    const idx = Number(raw) - 1;
-    return params[idx] ?? `{{${raw}}}`;
-  });
-}
 
 interface MessageThreadProps {
   conversation: Conversation | null;
@@ -831,12 +826,12 @@ export function MessageThread({
               type="button"
               onClick={onBack}
               aria-label="Back to conversations"
-              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
           )}
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
             {displayName.charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">

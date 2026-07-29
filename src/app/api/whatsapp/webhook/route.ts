@@ -59,6 +59,8 @@ interface WhatsAppMessage {
     button_reply?: { id: string; title: string }
     list_reply?: { id: string; title: string; description?: string }
   }
+  /** Present when the customer taps a quick reply button on a template message. */
+  button?: { payload?: string; text?: string }
   /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
 }
@@ -651,8 +653,10 @@ async function processMessage(
   const contentType = ALLOWED_CONTENT_TYPES.has(message.type)
     ? message.type
     : message.type === 'sticker'
-      ? 'image'   // stickers are images
-      : 'text'    // reaction, unknown → text fallback
+      ? 'image'       // stickers are images
+      : message.type === 'button'
+        ? 'interactive' // quick-reply button clicks are interactive replies
+        : 'text'        // reaction, unknown → text fallback
 
   // Determine whether this is the contact's very first inbound message
   // BEFORE we insert, so the count is accurate. Covers the case where
@@ -963,6 +967,18 @@ async function parseMessageContent(
         }
       }
       return { ...empty, contentText: '[Interactive reply]' }
+    }
+
+    case 'button': {
+      // Customer tapped a quick-reply button on a template message.
+      // Meta delivers `message.button` containing `text` (button label) and `payload`.
+      const btn = message.button
+      const buttonText = btn?.text || btn?.payload || '[Button reply]'
+      return {
+        ...empty,
+        contentText: buttonText,
+        interactiveReplyId: btn?.payload || btn?.text || null,
+      }
     }
 
     default:

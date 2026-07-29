@@ -107,6 +107,22 @@ export function extractVariableIndices(text: string): number[] {
   return extractVariableTokens(text).map((t) => t.index);
 }
 
+/**
+ * Replace variable placeholders in a template body string with their fill-in values.
+ * Handles both numeric placeholders (`{{1}}`, `{{2}}`) and named placeholders
+ * (`{{customer_name}}`, `{{ company }}`).
+ */
+export function renderTemplateBody(body: string, params: string[]): string {
+  if (!body) return '';
+  let paramIdx = 0;
+  return body.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, raw) => {
+    const numeric = Number(raw);
+    const idx = Number.isFinite(numeric) && numeric >= 1 ? numeric - 1 : paramIdx++;
+    const value = params[idx];
+    return value && value.trim().length > 0 ? value : match;
+  });
+}
+
 
 /**
  * Meta requires contiguous, 1-indexed variables. `{{1}} {{3}}` is
@@ -212,7 +228,9 @@ function countButtonsByType(
     PHONE_NUMBER: 0,
     COPY_CODE: 0,
   };
-  for (const b of buttons) counts[b.type]++;
+  for (const b of buttons) {
+    if (counts[b.type] !== undefined) counts[b.type]++;
+  }
   return counts;
 }
 

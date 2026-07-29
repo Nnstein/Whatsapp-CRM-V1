@@ -22,7 +22,12 @@ import {
   Loader2,
   Phone,
 } from "lucide-react";
-import { extractVariableIndices } from "@/lib/whatsapp/template-validators";
+import {
+  extractVariableIndices,
+  extractVariableTokens,
+  renderTemplateBody,
+  type TemplateVariableToken,
+} from "@/lib/whatsapp/template-validators";
 
 export interface TemplateSendValues {
   body: string[];
@@ -48,13 +53,7 @@ interface TemplatePickerProps {
 }
 
 function renderBodyPreview(body: string, params: string[]): string {
-  let paramIdx = 0;
-  return body.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, raw) => {
-    const numeric = Number(raw);
-    const idx = Number.isFinite(numeric) && numeric >= 1 ? numeric - 1 : paramIdx++;
-    const value = params[idx];
-    return value && value.trim().length > 0 ? value : match;
-  });
+  return renderTemplateBody(body, params);
 }
 
 interface UrlButtonSlot {
@@ -69,11 +68,13 @@ interface UrlButtonSlot {
  * send-message path doesn't 400 on missing parameters.
  */
 function collectVariableSlots(template: MessageTemplate): {
+  bodyTokens: TemplateVariableToken[];
   bodyVars: number[];
   headerVarCount: number;
   urlButtonSlots: UrlButtonSlot[];
 } {
-  const bodyVars = extractVariableIndices(template.body_text);
+  const bodyTokens = extractVariableTokens(template.body_text);
+  const bodyVars = bodyTokens.map((t) => t.index);
   const headerVarCount =
     template.header_type === "text" && template.header_content
       ? extractVariableIndices(template.header_content).length
@@ -84,7 +85,7 @@ function collectVariableSlots(template: MessageTemplate): {
       urlButtonSlots.push({ index: i, text: b.text, url: b.url });
     }
   });
-  return { bodyVars, headerVarCount, urlButtonSlots };
+  return { bodyTokens, bodyVars, headerVarCount, urlButtonSlots };
 }
 
 export function TemplatePicker({
@@ -338,21 +339,24 @@ export function TemplatePicker({
                 />
               </div>
             )}
-            {slots?.bodyVars.map((v, i) => (
-              <div key={v} className="space-y-1">
-                <Label className="text-xs text-popover-foreground">{`Body {{${v}}}`}</Label>
-                <Input
-                  value={params[i] ?? ""}
-                  onChange={(e) => {
-                    const next = [...params];
-                    next[i] = e.target.value;
-                    setParams(next);
-                  }}
-                  placeholder={`Value for {{${v}}}`}
-                  className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
-                />
-              </div>
-            ))}
+            {slots?.bodyTokens.map((token, i) => {
+              const varLabel = token.name ?? token.index;
+              return (
+                <div key={varLabel} className="space-y-1">
+                  <Label className="text-xs text-popover-foreground">{`Body {{${varLabel}}}`}</Label>
+                  <Input
+                    value={params[i] ?? ""}
+                    onChange={(e) => {
+                      const next = [...params];
+                      next[i] = e.target.value;
+                      setParams(next);
+                    }}
+                    placeholder={`Value for {{${varLabel}}}`}
+                    className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
+                  />
+                </div>
+              );
+            })}
             {slots?.urlButtonSlots.map((slot) => (
               <div key={slot.index} className="space-y-1">
                 <Label className="text-xs text-popover-foreground">
