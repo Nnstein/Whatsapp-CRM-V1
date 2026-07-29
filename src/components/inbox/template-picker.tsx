@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { MessageTemplate, WhatsAppConfig } from "@/types";
+import type { Contact, MessageTemplate, WhatsAppConfig } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,6 +41,8 @@ interface TemplatePickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (template: MessageTemplate, values: TemplateSendValues) => void;
+  /** Contact context used to auto-fill variable placeholders (e.g. name, company). */
+  contact?: Contact | null;
   /**
    * When provided and has 2+ entries, the picker shows a number-selection
    * step before the template list so the sender can choose which WhatsApp
@@ -88,10 +90,48 @@ function collectVariableSlots(template: MessageTemplate): {
   return { bodyTokens, bodyVars, headerVarCount, urlButtonSlots };
 }
 
+function resolveDefaultParamValue(
+  token: TemplateVariableToken,
+  contact?: Contact | null,
+): string {
+  if (!contact) return "";
+  const rawName = token.name ?? String(token.index);
+  const lower = rawName.toLowerCase();
+
+  if (
+    lower.includes("name") ||
+    lower.includes("customer") ||
+    lower.includes("client") ||
+    lower.includes("user") ||
+    token.index === 1
+  ) {
+    return contact.name ?? "";
+  }
+
+  if (
+    lower.includes("company") ||
+    lower.includes("business") ||
+    lower.includes("org")
+  ) {
+    return contact.company ?? "";
+  }
+
+  if (lower.includes("email")) {
+    return contact.email ?? "";
+  }
+
+  if (lower.includes("phone") || lower.includes("mobile")) {
+    return contact.phone ?? "";
+  }
+
+  return "";
+}
+
 export function TemplatePicker({
   open,
   onOpenChange,
   onSelect,
+  contact,
   whatsappNumbers,
   preselectedConfigId,
 }: TemplatePickerProps) {
@@ -171,18 +211,25 @@ export function TemplatePicker({
 
   function pickTemplate(template: MessageTemplate) {
     const slots = collectVariableSlots(template);
+    const initialParams = slots.bodyTokens.map((t) =>
+      resolveDefaultParamValue(t, contact),
+    );
+    const initialHeader =
+      slots.headerVarCount > 0 && contact?.name ? contact.name : "";
+
     const noInputsNeeded =
       slots.bodyVars.length === 0 &&
       slots.headerVarCount === 0 &&
       slots.urlButtonSlots.length === 0;
+
     if (noInputsNeeded) {
       onSelect(template, { body: [] });
       handleOpenChange(false);
       return;
     }
     setSelected(template);
-    setParams(new Array(slots.bodyVars.length).fill(""));
-    setHeaderText("");
+    setParams(initialParams);
+    setHeaderText(initialHeader);
     setButtonParams({});
   }
 

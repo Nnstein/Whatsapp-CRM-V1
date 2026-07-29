@@ -14,6 +14,11 @@ import {
 } from '@/components/ui/select';
 import { ArrowLeft, ArrowRight, Eye, ImageIcon, Loader2 } from 'lucide-react';
 
+import {
+  extractVariableTokens,
+  type TemplateVariableToken,
+} from '@/lib/whatsapp/template-validators';
+
 type VariableType = 'static' | 'field' | 'custom_field';
 
 interface VariableMapping {
@@ -66,6 +71,35 @@ const SAMPLE_CONTACT: Contact = {
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 };
+
+function getSmartDefaultMapping(token: TemplateVariableToken): VariableMapping {
+  const rawName = token.name ?? String(token.index);
+  const lower = rawName.toLowerCase();
+
+  if (
+    lower.includes('name') ||
+    lower.includes('customer') ||
+    lower.includes('client') ||
+    lower.includes('user') ||
+    token.index === 1
+  ) {
+    return { type: 'field', value: 'name' };
+  }
+
+  if (lower.includes('company') || lower.includes('business') || lower.includes('org')) {
+    return { type: 'field', value: 'company' };
+  }
+
+  if (lower.includes('email')) {
+    return { type: 'field', value: 'email' };
+  }
+
+  if (lower.includes('phone') || lower.includes('mobile')) {
+    return { type: 'field', value: 'phone' };
+  }
+
+  return { type: 'field', value: 'name' };
+}
 
 export function Step3Personalize({
   template,
@@ -127,11 +161,31 @@ export function Step3Personalize({
     };
   }, []);
 
-  const placeholders = useMemo(() => {
-    const matches = template.body_text.match(/\{\{(\d+)\}\}/g);
-    if (!matches) return [];
-    return [...new Set(matches)].sort();
+  const variableTokens = useMemo(() => {
+    return extractVariableTokens(template.body_text);
   }, [template.body_text]);
+
+  const placeholders = useMemo(() => {
+    return variableTokens.map((t) => `{{${t.name ?? t.index}}}`);
+  }, [variableTokens]);
+
+  // Smart auto-map unmapped variables to contact fields on load
+  useEffect(() => {
+    if (variableTokens.length === 0) return;
+    const next = { ...variables };
+    let changed = false;
+    for (const token of variableTokens) {
+      const key = token.name ?? String(token.index);
+      if (!next[key] || !next[key].value) {
+        next[key] = getSmartDefaultMapping(token);
+        changed = true;
+      }
+    }
+    if (changed) {
+      onUpdate(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variableTokens]);
 
   // Templates with an IMAGE/VIDEO/DOCUMENT header need a media URL at
   // send time — Meta requires the media component on every delivery and
@@ -197,10 +251,10 @@ export function Step3Personalize({
       : new Map<string, string>();
 
     let text = template.body_text;
-    for (const placeholder of placeholders) {
-      const key = placeholder.replace(/^\{\{|\}\}$/g, '');
+    for (const token of variableTokens) {
+      const key = token.name ?? String(token.index);
       const mapping = variables[key];
-      let replacement = placeholder;
+      let replacement = `{{${key}}}`;
 
       if (mapping) {
         if (mapping.type === 'static' && mapping.value) {
@@ -212,18 +266,19 @@ export function Step3Personalize({
             email: contact.email,
             company: contact.company,
           };
-          replacement = fieldMap[mapping.value] ?? placeholder;
+          replacement = fieldMap[mapping.value] ?? `{{${key}}}`;
         } else if (mapping.type === 'custom_field' && mapping.value) {
-          replacement = customValues.get(mapping.value) || placeholder;
+          replacement = customValues.get(mapping.value) || `{{${key}}}`;
         }
       }
-      text = text.replaceAll(placeholder, replacement);
+      const regex = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g');
+      text = text.replace(regex, replacement);
     }
     return text;
   }, [
     template.body_text,
     variables,
-    placeholders,
+    variableTokens,
     firstContact,
     firstContactCustomValues,
   ]);

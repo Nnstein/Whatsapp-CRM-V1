@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { Contact, MessageTemplate } from '@/types';
+import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
 
 export type CustomFieldOperator = 'is' | 'is_not' | 'contains';
 
@@ -516,12 +517,18 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
 
           const resultsByPhone = new Map<string, BroadcastApiResult>();
           for (const r of (data.results ?? []) as BroadcastApiResult[]) {
-            resultsByPhone.set(r.phone, r);
+            if (r.phone) {
+              resultsByPhone.set(r.phone, r);
+              resultsByPhone.set(sanitizePhoneForMeta(r.phone), r);
+            }
           }
 
           for (const recipient of batch) {
-            const phone = recipient.contact?.phone;
-            const result = phone ? resultsByPhone.get(phone) : undefined;
+            const rawPhone = recipient.contact?.phone;
+            const cleanPhone = rawPhone ? sanitizePhoneForMeta(rawPhone) : '';
+            const result =
+              (rawPhone ? resultsByPhone.get(rawPhone) : undefined) ??
+              (cleanPhone ? resultsByPhone.get(cleanPhone) : undefined);
 
             if (!result) {
               failedCount++;

@@ -157,10 +157,11 @@ export default function BroadcastDetailPage() {
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
+    let timerId: NodeJS.Timeout | null = null;
+    const supabase = createClient();
+
     async function fetchData() {
       try {
-        const supabase = createClient();
-
         const { data: bc, error: bcError } = await supabase
           .from('broadcasts')
           .select('*')
@@ -178,6 +179,11 @@ export default function BroadcastDetailPage() {
 
         if (recsError) throw recsError;
         setRecipients(recs ?? []);
+
+        // If broadcast is actively sending, poll every 2.5s for progress updates
+        if (bc.status === 'sending') {
+          timerId = setTimeout(fetchData, 2500);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load broadcast');
       } finally {
@@ -186,6 +192,28 @@ export default function BroadcastDetailPage() {
     }
 
     fetchData();
+
+    // Subscribe to realtime updates on broadcast_recipients
+    const channel = supabase
+      .channel(`broadcast-detail-${broadcastId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'broadcast_recipients',
+          filter: `broadcast_id=eq.${broadcastId}`,
+        },
+        () => {
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (timerId) clearTimeout(timerId);
+      supabase.removeChannel(channel);
+    };
   }, [broadcastId]);
 
   const filteredRecipients = useMemo(

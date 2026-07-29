@@ -283,6 +283,7 @@ export async function applyContactEnrichment(
       const { error: noteErr } = await db.from('contact_notes').insert({
         contact_id: contact.id,
         user_id: contact.user_id,
+        account_id: contact.account_id,
         note_text: `[AI] ${details.summary_note}`,
       })
       if (noteErr) {
