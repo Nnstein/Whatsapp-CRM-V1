@@ -155,6 +155,15 @@ export default function BroadcastDetailPage() {
   );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [senderProfile, setSenderProfile] = useState<{
+    full_name: string | null;
+    email: string | null;
+    account_role: string | null;
+  } | null>(null);
+  const [senderNumber, setSenderNumber] = useState<{
+    label: string;
+    phone_number_id: string;
+  } | null>(null);
 
   useEffect(() => {
     let timerId: NodeJS.Timeout | null = null;
@@ -170,6 +179,24 @@ export default function BroadcastDetailPage() {
 
         if (bcError) throw bcError;
         setBroadcast(bc);
+
+        if (bc.user_id) {
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('full_name, email, account_role')
+            .eq('user_id', bc.user_id)
+            .maybeSingle();
+          setSenderProfile(prof ?? null);
+        }
+
+        if (bc.whatsapp_config_id) {
+          const { data: cfg } = await supabase
+            .from('whatsapp_config')
+            .select('label, phone_number_id')
+            .eq('id', bc.whatsapp_config_id)
+            .maybeSingle();
+          setSenderNumber(cfg ?? null);
+        }
 
         const { data: recs, error: recsError } = await supabase
           .from('broadcast_recipients')
@@ -321,9 +348,38 @@ export default function BroadcastDetailPage() {
                 {status.label}
               </span>
             </div>
-            <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground">
-              <span>Template: {broadcast.template_name}</span>
-              <span>-</span>
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <span>Template: <strong className="text-foreground">{broadcast.template_name}</strong></span>
+              <span>•</span>
+              <div className="flex items-center gap-1.5">
+                <span>Sent By:</span>
+                <strong className="text-foreground font-medium">
+                  {senderProfile?.full_name || senderProfile?.email || 'System'}
+                </strong>
+                {senderProfile?.account_role && (
+                  <span
+                    className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase ${
+                      senderProfile.account_role === 'owner'
+                        ? 'bg-purple-500/10 text-purple-400 border-purple-500/20'
+                        : senderProfile.account_role === 'admin'
+                        ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                        : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                    }`}
+                  >
+                    {senderProfile.account_role}
+                  </span>
+                )}
+              </div>
+              <span>•</span>
+              <div>
+                <span>WhatsApp Number: </span>
+                <strong className="text-foreground font-medium">
+                  {senderNumber
+                    ? `${senderNumber.label} (${senderNumber.phone_number_id})`
+                    : 'Default Number'}
+                </strong>
+              </div>
+              <span>•</span>
               <span>
                 Created {new Date(broadcast.created_at).toLocaleDateString()}
               </span>

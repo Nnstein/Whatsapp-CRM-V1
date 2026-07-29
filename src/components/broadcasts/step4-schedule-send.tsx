@@ -141,19 +141,33 @@ export function Step4ScheduleSend({
 
       {/* Sender WhatsApp Number Selector */}
       {whatsappNumbers.length > 0 && (
-        <div>
-          <label className="mb-1.5 block text-sm font-medium text-foreground">Send From WhatsApp Number</label>
+        <div className="rounded-xl border border-border bg-card/50 p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium text-foreground">
+              Send From WhatsApp Number
+            </label>
+            {whatsappNumbers.length > 1 && (
+              <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+                {whatsappNumbers.length} Numbers Available
+              </span>
+            )}
+          </div>
           <select
             value={whatsappConfigId || ''}
             onChange={(e) => onWhatsappConfigIdChange?.(e.target.value)}
-            className="w-full rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
           >
             {whatsappNumbers.map((num) => (
               <option key={num.id} value={num.id}>
-                {num.label} ({num.phone_number_id}){num.is_default ? ' — Default' : ''}
+                {num.label} ({num.phone_number_id}){num.is_default ? ' — Account Default' : ''}
               </option>
             ))}
           </select>
+          <p className="text-xs text-muted-foreground">
+            {whatsappNumbers.length > 1
+              ? 'As Admin/Owner, choose which connected WhatsApp Business number will dispatch this broadcast.'
+              : 'Broadcasts will be sent from this connected WhatsApp Business number.'}
+          </p>
         </div>
       )}
 
