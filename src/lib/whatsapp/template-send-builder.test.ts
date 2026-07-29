@@ -36,13 +36,23 @@ describe('buildSendComponents — body', () => {
     ]);
   });
 
-  it('throws when body has variables but caller supplied too few values', () => {
-    expect(() =>
-      buildSendComponents(
-        row({ body_text: 'Hi {{1}} {{2}}' }),
-        { body: ['just one'] },
-      ),
-    ).toThrow(/2 variable\(s\) but only 1/);
+  it('auto-fills sample values or default when body has variables but caller supplied too few values', () => {
+    const components = buildSendComponents(
+      row({
+        body_text: 'Hi {{1}} {{2}}',
+        sample_values: { body: ['Valued', 'Customer'] },
+      }),
+      { body: ['just one'] },
+    );
+    expect(components).toEqual([
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', text: 'just one' },
+          { type: 'text', text: 'Customer' },
+        ],
+      },
+    ]);
   });
 
   it('trims extra body values silently (legacy callers may overshoot)', () => {
@@ -75,12 +85,13 @@ describe('buildSendComponents — header', () => {
     ]);
   });
 
-  it('throws when TEXT header has {{1}} but no value was supplied', () => {
-    expect(() =>
-      buildSendComponents(
-        row({ header_type: 'text', header_content: 'Hello {{1}}' }),
-      ),
-    ).toThrow(/Header text variable \{\{1\}\}/);
+  it('auto-fills default when TEXT header has {{1}} but no value was supplied', () => {
+    const components = buildSendComponents(
+      row({ header_type: 'text', header_content: 'Hello {{1}}' }),
+    );
+    expect(components).toEqual([
+      { type: 'header', parameters: [{ type: 'text', text: 'Notice' }] },
+    ]);
   });
 
   it('auto-includes IMAGE header from the stored sample URL', () => {
@@ -181,16 +192,22 @@ describe('buildSendComponents — buttons', () => {
     ]);
   });
 
-  it('throws when URL button has {{1}} but no buttonParam was provided', () => {
-    expect(() =>
-      buildSendComponents(
-        row({
-          buttons: [
-            { type: 'URL', text: 'Track', url: 'https://x.com/{{1}}' },
-          ],
-        }),
-      ),
-    ).toThrow(/URL button #1 uses \{\{1\}\}/);
+  it('auto-fills default when URL button has {{1}} but no buttonParam was provided', () => {
+    const components = buildSendComponents(
+      row({
+        buttons: [
+          { type: 'URL', text: 'Track', url: 'https://x.com/{{1}}' },
+        ],
+      }),
+    );
+    expect(components).toEqual([
+      {
+        type: 'button',
+        sub_type: 'url',
+        index: '0',
+        parameters: [{ type: 'text', text: 'info' }],
+      },
+    ]);
   });
 
   it('uses the correct index when QR buttons precede the URL button', () => {

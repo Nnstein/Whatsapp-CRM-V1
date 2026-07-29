@@ -37,6 +37,7 @@ import {
 } from '@/lib/whatsapp/phone-utils';
 import type { MessageTemplate } from '@/types';
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard';
+import { renderTemplateBody } from '@/lib/whatsapp/template-validators';
 
 export const MEDIA_KINDS = ['image', 'video', 'document', 'audio'] as const;
 export const VALID_MESSAGE_TYPES = [
@@ -421,6 +422,17 @@ export async function sendMessageToConversation(
       .eq('id', contact.id);
   }
 
+  // Compute rendered template body if applicable so stored content_text
+  // has actual values ("Hello John") instead of raw placeholders ("Hello {{customer_name}}").
+  let finalContentText = contentText;
+  if (messageType === 'template' && templateRow) {
+    const msgParams = templateMessageParams as { body?: string[] } | undefined;
+    const bodyValues = msgParams?.body ?? templateParams ?? [];
+    if (bodyValues.length > 0) {
+      finalContentText = renderTemplateBody(templateRow.body_text, bodyValues);
+    }
+  }
+
   // Persist the sent message. Field names MUST match the messages
   // schema (see 001_initial_schema.sql).
   const { data: messageRecord, error: msgError } = await db
@@ -429,7 +441,7 @@ export async function sendMessageToConversation(
       conversation_id: conversationId,
       sender_type: 'agent',
       content_type: messageType,
-      content_text: contentText || null,
+      content_text: finalContentText || null,
       media_url: mediaUrl || null,
       template_name: templateName || null,
       message_id: waMessageId,
@@ -451,7 +463,7 @@ export async function sendMessageToConversation(
   await db
     .from('conversations')
     .update({
-      last_message_text: contentText || `[${messageType}]`,
+      last_message_text: finalContentText || `[${messageType}]`,
       last_message_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })

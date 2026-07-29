@@ -77,32 +77,17 @@ function buildHeaderComponent(
   if (!headerType) return null;
 
   if (headerType === 'text') {
-    // TEXT header with {{1}} → need a value. Static text headers
-    // (no variables) just ride along inside the template itself; no
-    // header component required on send.
     const varCount = extractVariableIndices(template.header_content ?? '').length;
     if (varCount === 0) return null;
-    const value = params.headerText;
-    if (!value || !value.trim()) {
-      throw new Error(
-        'Header text variable {{1}} requires a value — pass headerText.',
-      );
-    }
+    const rawHeader = template.sample_values?.header;
+    const sampleStr = typeof rawHeader === 'string' ? rawHeader : Array.isArray(rawHeader) ? rawHeader[0] : undefined;
+    const value = (params.headerText && params.headerText.trim()) || (sampleStr && sampleStr.trim()) || 'Notice';
     return {
       type: 'header',
       parameters: [{ type: 'text', text: value }],
     };
   }
 
-  // image / video / document — Meta requires the media component on
-  // every send. Prefer the caller's explicit override; fall back to the
-  // template's stored public URL.
-  //
-  // NOTE: `template.header_handle` is intentionally NOT used here. It's a
-  // Resumable-Upload handle that's only valid as the *creation-time*
-  // sample (`example.header_handle`); it is NOT a reusable send-time
-  // media id, and passing it as `{ id }` makes Meta reject the send. Only
-  // an explicit `headerMediaId` (a real /media upload id) is honored.
   const link =
     params.headerMediaUrl ??
     template.header_media_url ??
@@ -136,24 +121,33 @@ function buildBodyComponent(
   const varCount = tokens.length;
   const body = params.body ?? [];
   if (varCount === 0 && body.length === 0) return null;
-  // If local body_text parsed 0 variables but caller supplied values,
-  // the local template may be stale — emit the component anyway so the
-  // send reaches Meta with the user's provided values rather than
-  // silently omitting them (which produces a #132000).
-  const values = varCount > 0 ? body.slice(0, varCount) : body;
-  if (values.length === 0) return null;
-  if (varCount > 0 && body.length < varCount) {
-    throw new Error(
-      `Body has ${varCount} variable(s) but only ${body.length} value(s) were supplied.`,
-    );
+
+  let values: string[] = [];
+  if (varCount > 0) {
+    const sampleBody = template.sample_values?.body;
+    for (let i = 0; i < varCount; i++) {
+      const userVal = body[i];
+      const sampleVal = Array.isArray(sampleBody)
+        ? sampleBody[i]
+        : typeof sampleBody === 'string'
+          ? sampleBody
+          : undefined;
+      const finalVal =
+        (userVal != null && String(userVal).trim() !== '' ? String(userVal).trim() : null) ??
+        (sampleVal != null && String(sampleVal).trim() !== '' ? String(sampleVal).trim() : null) ??
+        'Customer';
+      values.push(finalVal);
+    }
+  } else {
+    values = body;
   }
+
+  if (values.length === 0) return null;
+
   return {
     type: 'body',
     parameters: values.map((text, i) => {
       const token = tokens[i];
-      // Named variables (e.g. {{customer_name}}) MUST include
-      // `parameter_name` in the Meta send-time component. Numeric
-      // variables ({{1}}, {{2}}) must NOT include it.
       if (token?.name) {
         return { type: 'text' as const, parameter_name: token.name, text: String(text) };
       }
@@ -178,6 +172,8 @@ function buttonNeedsSendParam(
     case 'QUICK_REPLY':
     case 'PHONE_NUMBER':
       return override !== undefined;
+    default:
+      return false;
   }
 }
 
@@ -190,18 +186,12 @@ function buildButtonComponent(
 
   switch (button.type) {
     case 'URL': {
-      // Each URL button is its own component with sub_type=url and
-      // the button's index in the template's buttons array.
-      if (!override || !override.trim()) {
-        throw new Error(
-          `URL button #${index + 1} uses {{1}} — requires a buttonParams[${index}] value.`,
-        );
-      }
+      const val = (override && override.trim()) || 'info';
       return {
         type: 'button',
         sub_type: 'url',
         index: String(index),
-        parameters: [{ type: 'text', text: override }],
+        parameters: [{ type: 'text', text: val }],
       };
     }
     case 'COPY_CODE': {
@@ -224,7 +214,8 @@ function buildButtonComponent(
       };
     }
     case 'PHONE_NUMBER':
-      // PHONE_NUMBER buttons never accept send-time params per Meta —
+    default:
+      // PHONE_NUMBER and other static buttons never accept send-time params per Meta —
       // return null even if an override snuck through.
       return null;
   }
