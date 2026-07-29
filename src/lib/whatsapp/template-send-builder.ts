@@ -31,7 +31,7 @@
  */
 
 import type { MessageTemplate, TemplateButton } from '@/types';
-import { extractVariableIndices } from './template-validators';
+import { extractVariableIndices, extractVariableTokens } from './template-validators';
 
 export interface SendTimeParams {
   /** Values for body {{1}}, {{2}}, … indexed by variable position. */
@@ -62,7 +62,7 @@ export type MetaSendComponent =
     };
 
 type MetaSendParameter =
-  | { type: 'text'; text: string }
+  | { type: 'text'; text: string; parameter_name?: string }
   | { type: 'image'; image: { link?: string; id?: string } }
   | { type: 'video'; video: { link?: string; id?: string } }
   | { type: 'document'; document: { link?: string; id?: string } }
@@ -132,13 +132,14 @@ function buildBodyComponent(
   template: MessageTemplate,
   params: SendTimeParams,
 ): MetaSendComponent | null {
-  const varCount = extractVariableIndices(template.body_text).length;
+  const tokens = extractVariableTokens(template.body_text);
+  const varCount = tokens.length;
   const body = params.body ?? [];
   if (varCount === 0 && body.length === 0) return null;
-  // If the caller supplied values but local body_text parsed 0 variables,
-  // the local template may be stale — Meta's copy may have more. Emit the
-  // component anyway so the send reaches Meta with the user's provided values
-  // rather than silently omitting them (which produces a #132000).
+  // If local body_text parsed 0 variables but caller supplied values,
+  // the local template may be stale — emit the component anyway so the
+  // send reaches Meta with the user's provided values rather than
+  // silently omitting them (which produces a #132000).
   const values = varCount > 0 ? body.slice(0, varCount) : body;
   if (values.length === 0) return null;
   if (varCount > 0 && body.length < varCount) {
@@ -148,7 +149,16 @@ function buildBodyComponent(
   }
   return {
     type: 'body',
-    parameters: values.map((text) => ({ type: 'text', text: String(text) })),
+    parameters: values.map((text, i) => {
+      const token = tokens[i];
+      // Named variables (e.g. {{customer_name}}) MUST include
+      // `parameter_name` in the Meta send-time component. Numeric
+      // variables ({{1}}, {{2}}) must NOT include it.
+      if (token?.name) {
+        return { type: 'text' as const, parameter_name: token.name, text: String(text) };
+      }
+      return { type: 'text' as const, text: String(text) };
+    }),
   };
 }
 
