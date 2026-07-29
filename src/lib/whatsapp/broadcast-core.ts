@@ -155,13 +155,24 @@ export async function createBroadcast(
 
   // Template row (once) for header/button components; guard a
   // malformed local row rather than N identical opaque failures.
-  const { data: rawTemplateRow } = await db
+  let { data: rawTemplateRow } = await db
     .from('message_templates')
     .select('*')
     .eq('account_id', accountId)
     .eq('name', templateName)
     .eq('language', templateLanguage)
     .maybeSingle();
+
+  if (!rawTemplateRow) {
+    const { data: fallback } = await db
+      .from('message_templates')
+      .select('*')
+      .eq('account_id', accountId)
+      .eq('name', templateName)
+      .limit(1)
+      .maybeSingle();
+    rawTemplateRow = fallback;
+  }
   if (rawTemplateRow && !isMessageTemplate(rawTemplateRow)) {
     throw new BroadcastError(
       'template_malformed',
