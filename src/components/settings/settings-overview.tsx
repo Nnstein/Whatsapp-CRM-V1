@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
+import { canAccessSettingsSection } from '@/lib/auth/roles';
 import { SECTION_META, type SettingsSection } from './settings-sections';
 import { SettingsChip, StatusDot } from './settings-chip';
 import { ROLE_META } from './role-meta';
@@ -134,11 +135,26 @@ export function SettingsOverview({
 
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-  const tiles: {
+  const rawTiles: {
     section: SettingsSection;
     loading: boolean;
     subtitle: ReactNode;
   }[] = [
+    {
+      section: 'profile',
+      loading: false,
+      subtitle: 'Manage your name, avatar & email',
+    },
+    {
+      section: 'security',
+      loading: false,
+      subtitle: 'Password, sessions & account security',
+    },
+    {
+      section: 'appearance',
+      loading: false,
+      subtitle: `${cap(mode)} mode · ${themeName} accent`,
+    },
     {
       section: 'whatsapp',
       loading: whatsappLoading,
@@ -192,11 +208,15 @@ export function SettingsOverview({
             } custom field${counts?.customFields === 1 ? '' : 's'}`,
     },
     {
-      section: 'appearance',
+      section: 'api',
       loading: false,
-      subtitle: `${cap(mode)} mode · ${themeName} accent`,
+      subtitle: 'Manage account API keys for external integrations',
     },
   ];
+
+  const tiles = rawTiles.filter((t) =>
+    !accountRole ? true : canAccessSettingsSection(accountRole, t.section),
+  );
 
   return (
     <section className="animate-in fade-in-50 duration-200">
