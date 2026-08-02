@@ -11,6 +11,7 @@ import { CURRENCIES } from '@/lib/currency';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { canAccessSettingsSection } from '@/lib/auth/roles';
 
 import { SECTION_META, type SettingsSection } from './settings-sections';
 import { SettingsChip, StatusDot } from './settings-chip';
@@ -35,21 +36,23 @@ export function SettingsOverview({
 }: {
   onSelect: (section: SettingsSection) => void;
 }) {
-  const { user, profile, accountId, accountRole, defaultCurrency, canManageMembers } =
-    useAuth();
+  const {
+    user,
+    profile,
+    accountId,
+    accountRole,
+    defaultCurrency,
+    canManageMembers,
+  } = useAuth();
   const { mode, theme } = useTheme();
 
   const [counts, setCounts] = useState<OverviewCounts | null>(null);
   const [countsLoading, setCountsLoading] = useState(true);
-  // WhatsApp status is tracked separately: its health check decrypts the
-  // token and pings Meta, which is far slower than the cheap count
-  // queries. Gating it independently keeps a slow/flaky Meta round-trip
-  // from blanking the rest of the landing.
   const [whatsapp, setWhatsapp] = useState<WhatsAppStatus | null>(null);
   const [whatsappLoading, setWhatsappLoading] = useState(true);
 
   useEffect(() => {
-    if (!user || !accountId) return;
+    if (!user?.id || !accountId) return;
     let cancelled = false;
     const supabase = createClient();
     const userId = user.id;
@@ -58,34 +61,33 @@ export function SettingsOverview({
     // Cheap counts — resolve fast, render immediately.
     (async () => {
       setCountsLoading(true);
-      const [membersRes, invitesRes, templatesTotal, templatesPending, tagsRes, fieldsRes] =
+      const [membersRes, invitesRes, tagsRes, fieldsRes, templatesRes] =
         await Promise.allSettled([
-          fetch('/api/account/members', { cache: 'no-store' }).then((r) => r.json()),
+          fetch('/api/account/members', { cache: 'no-store' }).then((r) =>
+            r.json(),
+          ),
           canManageMembers
-            ? fetch('/api/account/invitations', { cache: 'no-store' }).then((r) =>
-                r.json(),
+            ? fetch('/api/account/invitations', { cache: 'no-store' }).then(
+                (r) => r.json(),
               )
             : Promise.resolve(null),
-          supabase
-            .from('message_templates')
-            .select('id', { count: 'exact', head: true })
-            .eq('user_id', userId),
-          supabase
-            .from('message_templates')
-            .select('id', { count: 'exact', head: true })
-            .eq('user_id', userId)
-            .eq('status', 'PENDING'),
           supabase
             .from('tags')
             .select('id', { count: 'exact', head: true })
             .eq('user_id', userId),
-          supabase.from('custom_fields').select('id', { count: 'exact', head: true }),
+          supabase
+            .from('custom_fields')
+            .select('id', { count: 'exact', head: true }),
+          supabase
+            .from('message_templates')
+            .select('id, status', { count: 'exact' }),
         ]);
 
       if (cancelled) return;
 
       const members =
-        membersRes.status === 'fulfilled' && Array.isArray(membersRes.value?.members)
+        membersRes.status === 'fulfilled' &&
+        Array.isArray(membersRes.value?.members)
           ? membersRes.value.members.length
           : null;
       const pendingInvites =
@@ -95,25 +97,26 @@ export function SettingsOverview({
           ? invitesRes.value.invitations.length
           : null;
 
+      const templatesList =
+        templatesRes.status === 'fulfilled' && Array.isArray(templatesRes.value.data)
+          ? templatesRes.value.data
+          : null;
+
       setCounts({
         members,
         pendingInvites,
-        templates:
-          templatesTotal.status === 'fulfilled'
-            ? templatesTotal.value.count ?? null
-            : null,
-        templatesPending:
-          templatesPending.status === 'fulfilled'
-            ? templatesPending.value.count ?? null
-            : null,
-        tags: tagsRes.status === 'fulfilled' ? tagsRes.value.count ?? null : null,
+        templates: templatesList ? templatesList.length : null,
+        templatesPending: templatesList
+          ? templatesList.filter((t) => t.status === 'PENDING').length
+          : null,
+        tags: tagsRes.status === 'fulfilled' ? tagsRes.value.count ?? 0 : null,
         customFields:
-          fieldsRes.status === 'fulfilled' ? fieldsRes.value.count ?? null : null,
+          fieldsRes.status === 'fulfilled' ? fieldsRes.value.count ?? 0 : null,
       });
       setCountsLoading(false);
     })();
 
-    // WhatsApp connection status — slower, independent.
+    // WhatsApp status
     (async () => {
       setWhatsappLoading(true);
       const [row, health] = await Promise.allSettled([
@@ -123,11 +126,14 @@ export function SettingsOverview({
           .eq('account_id', acctId)
           .limit(1)
           .maybeSingle(),
-        fetch('/api/whatsapp/config', { cache: 'no-store' }).then((r) => r.json()),
+        fetch('/api/whatsapp/config', { cache: 'no-store' }).then((r) =>
+          r.json(),
+        ),
       ]);
       if (cancelled) return;
       setWhatsapp({
-        configured: row.status === 'fulfilled' && !!row.value.data?.phone_number_id,
+        configured:
+          row.status === 'fulfilled' && !!row.value.data?.phone_number_id,
         connected: health.status === 'fulfilled' && !!health.value?.connected,
       });
       setWhatsappLoading(false);
@@ -148,13 +154,26 @@ export function SettingsOverview({
   const themeName = THEMES.find((t) => t.id === theme)?.name ?? theme;
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-  // Per-tile loading + subtitle. `null` counts render as a graceful
-  // fallback so a single failed query never blanks a tile.
-  const tiles: {
+  const rawTiles: {
     section: SettingsSection;
     loading: boolean;
     subtitle: ReactNode;
   }[] = [
+    {
+      section: 'profile',
+      loading: false,
+      subtitle: 'Manage your name, avatar & email',
+    },
+    {
+      section: 'security',
+      loading: false,
+      subtitle: 'Password, sessions & account security',
+    },
+    {
+      section: 'appearance',
+      loading: false,
+      subtitle: `${cap(mode)} mode · ${themeName} accent`,
+    },
     {
       section: 'whatsapp',
       loading: whatsappLoading,
@@ -169,6 +188,11 @@ export function SettingsOverview({
           <StatusDot tone="muted" /> Needs reconnecting
         </>
       ),
+    },
+    {
+      section: 'ai',
+      loading: false,
+      subtitle: 'Multi-provider AI, Auto-reply & Contact Auto-enrichment',
     },
     {
       section: 'members',
@@ -212,11 +236,15 @@ export function SettingsOverview({
             } custom field${counts?.customFields === 1 ? '' : 's'}`,
     },
     {
-      section: 'appearance',
+      section: 'api',
       loading: false,
-      subtitle: `${cap(mode)} mode · ${themeName} accent`,
+      subtitle: 'Manage account API keys for external integrations',
     },
   ];
+
+  const tiles = rawTiles.filter((t) =>
+    !accountRole ? true : canAccessSettingsSection(accountRole, t.section),
+  );
 
   return (
     <section className="animate-in fade-in-50 duration-200">

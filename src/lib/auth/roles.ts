@@ -107,3 +107,32 @@ export function canDeleteAccount(role: AccountRole): boolean {
 export function canTransferOwnership(role: AccountRole): boolean {
   return role === "owner";
 }
+
+/**
+ * Check if a role can access a specific settings section.
+ * - 'overview', 'profile', 'security', 'appearance': all roles (owner, admin, agent, viewer)
+ * - 'fields' & 'members': owner, admin, agent (and viewer)
+ * - 'whatsapp', 'ai', 'templates', 'deals', 'api': admin & owner only
+ */
+export function canAccessSettingsSection(
+  role: AccountRole,
+  section: string
+): boolean {
+  switch (section) {
+    case 'overview':
+    case 'profile':
+    case 'security':
+    case 'appearance':
+    case 'fields':
+    case 'members':
+      return true;
+    case 'whatsapp':
+    case 'ai':
+    case 'templates':
+    case 'deals':
+    case 'api':
+      return hasMinRole(role, 'admin');
+    default:
+      return false;
+  }
+}

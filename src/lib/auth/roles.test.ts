@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ACCOUNT_ROLES,
   type AccountRole,
+  canAccessSettingsSection,
   canDeleteAccount,
   canEditSettings,
   canManageMembers,
@@ -126,5 +127,26 @@ describe("capability predicates", () => {
     expect(canTransferOwnership("admin")).toBe(false);
     expect(canTransferOwnership("agent")).toBe(false);
     expect(canTransferOwnership("viewer")).toBe(false);
+  });
+
+  it("canAccessSettingsSection: restricts agent to Account sections + fields & members in Workspace", () => {
+    // Agent role permissions
+    expect(canAccessSettingsSection("agent", "overview")).toBe(true);
+    expect(canAccessSettingsSection("agent", "profile")).toBe(true);
+    expect(canAccessSettingsSection("agent", "security")).toBe(true);
+    expect(canAccessSettingsSection("agent", "appearance")).toBe(true);
+    expect(canAccessSettingsSection("agent", "fields")).toBe(true);
+    expect(canAccessSettingsSection("agent", "members")).toBe(true);
+
+    // Restricted for Agent (Admin+ required)
+    expect(canAccessSettingsSection("agent", "whatsapp")).toBe(false);
+    expect(canAccessSettingsSection("agent", "ai")).toBe(false);
+    expect(canAccessSettingsSection("agent", "templates")).toBe(false);
+    expect(canAccessSettingsSection("agent", "deals")).toBe(false);
+    expect(canAccessSettingsSection("agent", "api")).toBe(false);
+
+    // Admin / Owner access all
+    expect(canAccessSettingsSection("admin", "whatsapp")).toBe(true);
+    expect(canAccessSettingsSection("owner", "whatsapp")).toBe(true);
   });
 });

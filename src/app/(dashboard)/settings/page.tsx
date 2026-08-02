@@ -16,6 +16,7 @@ import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel'
 import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
+import { canAccessSettingsSection } from '@/lib/auth/roles';
 import {
   resolveSection,
   type SettingsSection,
@@ -24,14 +25,15 @@ import {
 export default function SettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { defaultCurrency } = useAuth();
+  const { accountRole, defaultCurrency } = useAuth();
   const { mode } = useTheme();
 
-  // The URL (`?tab=`) is the single source of truth for the active
-  // section — deep-linkable, and it keeps the existing links in the
-  // app sidebar/header working. Legacy tab values (tags, custom-fields)
-  // resolve onto their new home; unknown/empty → the Overview landing.
-  const section = resolveSection(searchParams.get('tab'));
+  // The URL (`?tab=`) is the single source of truth for the active section.
+  const rawSection = resolveSection(searchParams.get('tab'));
+  const section =
+    accountRole && !canAccessSettingsSection(accountRole, rawSection)
+      ? 'overview'
+      : rawSection;
 
   const go = (next: SettingsSection) => {
     const params = new URLSearchParams(searchParams.toString());
