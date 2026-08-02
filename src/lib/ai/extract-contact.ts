@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AiConfig } from './types'
-import { aiRequestTimeoutMs, resolveChatBaseUrl } from './defaults'
-import { generateOpenAiCompatible } from './providers/openai-compatible'
+import { aiRequestTimeoutMs } from './defaults'
+import { generateOpenAi } from './providers/openai'
 import { generateAnthropic } from './providers/anthropic'
 
 // ============================================================
@@ -120,7 +120,6 @@ export async function extractContactDetails(
   if (messages.length === 0) return null
 
   const timeoutMs = Math.min(aiRequestTimeoutMs(), 20_000) // cap at 20s for enrichment
-  const baseUrl = resolveChatBaseUrl(config)
 
   const providerArgs = {
     apiKey: config.apiKey,
@@ -128,8 +127,6 @@ export async function extractContactDetails(
     systemPrompt: EXTRACTION_SYSTEM_PROMPT,
     messages,
     timeoutMs,
-    baseUrl,
-    providerName: config.provider,
   }
 
   let raw: string
@@ -137,7 +134,7 @@ export async function extractContactDetails(
     if (config.provider === 'anthropic') {
       raw = await generateAnthropic(providerArgs)
     } else {
-      raw = await generateOpenAiCompatible(providerArgs)
+      raw = await generateOpenAi(providerArgs)
     }
   } catch {
     // Network / auth failures — don't surface; enrichment is best-effort.
@@ -334,7 +331,6 @@ export async function dispatchContactEnrichment(args: EnrichArgs): Promise<void>
     // Stop auto-enrichment as soon as all contact details are successfully completed & saved!
     if (isContactComplete(contact)) return
 
-
     // Check how many customer messages exist in this conversation.
     const { count: customerMsgCount } = await db
       .from('messages')
@@ -342,8 +338,9 @@ export async function dispatchContactEnrichment(args: EnrichArgs): Promise<void>
       .eq('conversation_id', conversationId)
       .eq('sender_type', 'customer')
 
-    // Only enrich within the first N messages.
-    if ((customerMsgCount ?? 0) > config.autoEnrichMaxMessages) return
+    // Only enrich within the first N messages (default 10).
+    const maxMsgs = config.autoEnrichMaxMessages ?? 10
+    if ((customerMsgCount ?? 0) > maxMsgs) return
 
     // Fetch recent messages (limit to 10 for context; extraction doesn't
     // need a long history — just enough for the customer to self-introduce).
