@@ -427,13 +427,32 @@ export function MessageThread({
       });
   }, [conversationId, hasUnread]);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on opening conversation, loading completion, and new messages.
+  // Note: ScrollArea root (scrollRef.current) holds the outer container;
+  // the actual scrollable element is [data-slot="scroll-area-viewport"].
   useEffect(() => {
-    if (scrollRef.current) {
-      const el = scrollRef.current;
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [messages]);
+    if (!scrollRef.current || messages.length === 0 || loading) return;
+
+    const doScroll = () => {
+      const root = scrollRef.current;
+      if (!root) return;
+      const viewport =
+        root.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]') ||
+        root;
+      viewport.scrollTop = viewport.scrollHeight;
+    };
+
+    doScroll();
+
+    // Secondary scroll frames to handle image layout shifts & dynamic DOM renders
+    const rafId = requestAnimationFrame(doScroll);
+    const timerId = setTimeout(doScroll, 80);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(timerId);
+    };
+  }, [conversationId, messages, loading]);
 
   const handleSend = useCallback(
     async (text: string, replyToId?: string) => {
