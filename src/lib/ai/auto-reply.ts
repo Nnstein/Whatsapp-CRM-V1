@@ -101,12 +101,21 @@ export async function dispatchInboundToAiReply(
 
     if (handoff || !text) {
       // The model can't (or shouldn't) answer — stop auto-replying on
-      // this thread and leave the inbound unanswered so it surfaces in
-      // the inbox for a human. Sticky until an admin re-enables.
+      // this thread, flip status to pending, and send handoff notification.
       await db
         .from('conversations')
-        .update({ ai_autoreply_disabled: true })
+        .update({ status: 'pending', ai_autoreply_disabled: true })
         .eq('id', conversationId)
+
+      try {
+        await db.rpc('create_handoff_notification', {
+          p_account_id: accountId,
+          p_conversation_id: conversationId,
+          p_reason: 'AI assistant requested human hand-off',
+        })
+      } catch (err) {
+        console.error('[ai auto-reply] create_handoff_notification failed:', err)
+      }
       return
     }
 
