@@ -463,6 +463,7 @@ export async function sendMessageToConversation(
   await db
     .from('conversations')
     .update({
+      status: 'open',
       last_message_text: finalContentText || `[${messageType}]`,
       last_message_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
