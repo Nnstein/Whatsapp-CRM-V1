@@ -446,6 +446,16 @@ async function executeHandoff(
       .from("conversations")
       .update(convUpdate)
       .eq("id", run.conversation_id);
+
+    try {
+      await db.rpc("create_handoff_notification", {
+        p_account_id: run.account_id,
+        p_conversation_id: run.conversation_id,
+        p_reason: cfg.note || "Handed off by chat flow",
+      });
+    } catch (err) {
+      console.error("[flows] create_handoff_notification failed:", err);
+    }
   }
   await logEvent(db, run.id, "handoff", node.node_key, {
     note: cfg.note ?? null,
@@ -1036,6 +1046,16 @@ async function handleReplyForActiveRun(
         .from("conversations")
         .update({ status: "pending", updated_at: new Date().toISOString() })
         .eq("id", run.conversation_id);
+
+      try {
+        await db.rpc("create_handoff_notification", {
+          p_account_id: run.account_id,
+          p_conversation_id: run.conversation_id,
+          p_reason: "Input validation fallback exhausted",
+        });
+      } catch (err) {
+        console.error("[flows] fallback handoff notification failed:", err);
+      }
     }
     await logEvent(db, run.id, "handoff", run.current_node_key, {
       reason: "fallback_exhausted",
