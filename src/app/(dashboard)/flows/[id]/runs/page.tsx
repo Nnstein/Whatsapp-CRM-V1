@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -13,22 +13,32 @@ import {
   PauseCircle,
   ChevronDown,
   ChevronRight,
+  Download,
+  Table as TableIcon,
+  ListFilter,
+  Tag as TagIcon,
+  MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
- * Run history viewer.
+ * Run history & Responses viewer.
  *
- * Lists the 50 most recent runs for a flow, newest first. Each row
- * collapses to a one-liner (contact + status + time); expanding shows
- * the full `flow_run_events` timeline for that run — useful for
- * debugging "why didn't my flow advance?" by surfacing the engine's
- * own log.
+ * Lists the runs for a flow with dual views:
+ *   1. "Responses & Inputs" data table with CSV export (Contact + Tags + Collected Vars)
+ *   2. "Execution Timeline" per-step log for debugging.
  */
+
+interface TagItem {
+  id: string;
+  name: string;
+  color?: string;
+}
 
 interface RunRow {
   id: string;
@@ -46,7 +56,12 @@ interface RunRow {
   end_reason: string | null;
   vars: Record<string, unknown>;
   reprompt_count: number;
-  contact: { id: string; name: string | null; phone: string } | null;
+  contact: {
+    id: string;
+    name: string | null;
+    phone: string;
+    contact_tags?: Array<{ tag: TagItem }>;
+  } | null;
 }
 
 interface EventRow {
@@ -93,6 +108,24 @@ const STATUS_META: Record<
   },
 };
 
+function toCsv(rows: string[][]): string {
+  return rows
+    .map((row) =>
+      row.map((cell) => `"${(cell ?? "").replace(/"/g, '""')}"`).join(",")
+    )
+    .join("\n");
+}
+
+function downloadBlob(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function FlowRunsPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -103,6 +136,7 @@ export default function FlowRunsPage() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [notFound, setNotFound] = useState(false);
+  const [activeTab, setActiveTab] = useState<"responses" | "timeline">("responses");
 
   useEffect(() => {
     if (!params.id) return;
@@ -128,7 +162,7 @@ export default function FlowRunsPage() {
       } catch (err) {
         if (!cancelled) {
           console.error(err);
-          toast.error("Couldn't load runs.");
+          toast.error("Couldn't load flow runs.");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -138,6 +172,55 @@ export default function FlowRunsPage() {
       cancelled = true;
     };
   }, [params.id]);
+
+  // Extract all unique variable keys captured across all runs in this flow
+  const allVarKeys = useMemo(() => {
+    const keysSet = new Set<string>();
+    runs.forEach((r) => {
+      if (r.vars && typeof r.vars === "object") {
+        Object.keys(r.vars).forEach((k) => keysSet.add(k));
+      }
+    });
+    return Array.from(keysSet);
+  }, [runs]);
+
+  function handleExportCsv() {
+    if (!flow || runs.length === 0) return;
+
+    const headers = [
+      "Contact Name",
+      "Phone Number",
+      "Run Status",
+      "Started At",
+      "Tags",
+      ...allVarKeys,
+    ];
+
+    const rows = runs.map((r) => {
+      const contactName = r.contact?.name || "";
+      const phone = r.contact?.phone || "";
+      const status = r.status;
+      const startedAt = format(new Date(r.started_at), "yyyy-MM-dd HH:mm:ss");
+      const tags = (r.contact?.contact_tags ?? [])
+        .map((ct) => ct.tag?.name)
+        .filter(Boolean)
+        .join("; ");
+
+      const varValues = allVarKeys.map((k) => {
+        const val = r.vars?.[k];
+        if (val === undefined || val === null) return "";
+        if (typeof val === "object") return JSON.stringify(val);
+        return String(val);
+      });
+
+      return [contactName, phone, status, startedAt, tags, ...varValues];
+    });
+
+    const csvContent = toCsv([headers, ...rows]);
+    const safeName = flow.name.toLowerCase().replace(/[^a-z0-9]/g, "-");
+    downloadBlob(`${safeName}-responses.csv`, csvContent);
+    toast.success("Downloaded responses CSV!");
+  }
 
   function toggle(runId: string) {
     setExpanded((prev) => {
@@ -155,6 +238,7 @@ export default function FlowRunsPage() {
       </div>
     );
   }
+
   if (notFound || !flow) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3">
@@ -171,7 +255,7 @@ export default function FlowRunsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
+    <div className="mx-auto max-w-5xl p-6">
       <button
         type="button"
         onClick={() => router.push(`/flows/${flow.id}`)}
@@ -180,28 +264,206 @@ export default function FlowRunsPage() {
         <ArrowLeft className="h-3 w-3" />
         {flow.name}
       </button>
-      <h1 className="text-xl font-semibold text-foreground">Runs</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        The 50 most recent times this flow ran. Expand a row to see the engine&apos;s
-        per-step log.
-      </p>
 
-      {runs.length === 0 ? (
-        <div className="mt-6 rounded-lg border border-dashed border-border bg-card/50 px-6 py-12 text-center text-sm text-muted-foreground">
-          No runs yet. Trigger the flow from a personal WhatsApp number to see
-          it appear here.
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">
+            Flow Responses & Runs
+          </h1>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            View captured user inputs, tags, and execution history for &ldquo;{flow.name}&rdquo;.
+          </p>
         </div>
-      ) : (
-        <div className="mt-6 flex flex-col gap-2">
-          {runs.map((run) => (
-            <RunCard
-              key={run.id}
-              run={run}
-              events={events.filter((e) => e.flow_run_id === run.id)}
-              expanded={expanded.has(run.id)}
-              onToggle={() => toggle(run.id)}
-            />
-          ))}
+
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleExportCsv}
+            disabled={runs.length === 0}
+            className="gap-1.5 text-xs"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download Responses CSV
+          </Button>
+        </div>
+      </div>
+
+      {/* Tabs Switcher */}
+      <div className="mt-4 flex border-b border-border">
+        <button
+          type="button"
+          onClick={() => setActiveTab("responses")}
+          className={cn(
+            "flex items-center gap-1.5 border-b-2 px-4 py-2 text-xs font-medium transition-colors",
+            activeTab === "responses"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <TableIcon className="h-3.5 w-3.5" />
+          Collected Responses ({runs.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("timeline")}
+          className={cn(
+            "flex items-center gap-1.5 border-b-2 px-4 py-2 text-xs font-medium transition-colors",
+            activeTab === "timeline"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <ListFilter className="h-3.5 w-3.5" />
+          Execution Timeline
+        </button>
+      </div>
+
+      {/* TAB 1: Collected Responses Data Table */}
+      {activeTab === "responses" && (
+        <div className="mt-4">
+          {runs.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-card/50 px-6 py-12 text-center text-sm text-muted-foreground">
+              No responses recorded yet. Trigger the flow to start collecting customer inputs.
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border bg-card">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-border bg-muted/50 text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Contact</th>
+                    <th className="px-4 py-3 font-medium">Tags</th>
+                    <th className="px-4 py-3 font-medium">Collected Variables</th>
+                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {runs.map((run) => {
+                    const contactName = run.contact?.name || "Contact";
+                    const phone = run.contact?.phone || "";
+                    const tags = (run.contact?.contact_tags ?? [])
+                      .map((ct) => ct.tag)
+                      .filter(Boolean);
+                    const meta = STATUS_META[run.status];
+                    const StatusIcon = meta.icon;
+                    const varsEntries = Object.entries(run.vars || {});
+
+                    return (
+                      <tr
+                        key={run.id}
+                        className="transition-colors hover:bg-muted/30"
+                      >
+                        {/* Contact Cell */}
+                        <td className="px-4 py-3 align-top">
+                          <div className="flex items-center gap-2">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                              {contactName.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-foreground truncate">
+                                {contactName}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground font-mono">
+                                {phone}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Tags Cell */}
+                        <td className="px-4 py-3 align-top">
+                          {tags.length === 0 ? (
+                            <span className="text-[11px] text-muted-foreground/60">
+                              No tags
+                            </span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {tags.map((t) => (
+                                <Badge
+                                  key={t.id}
+                                  variant="outline"
+                                  className="gap-1 border-border bg-muted/60 text-[10px] font-normal"
+                                >
+                                  <TagIcon className="h-2.5 w-2.5 text-primary" />
+                                  {t.name}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Collected Variables Cell */}
+                        <td className="px-4 py-3 align-top">
+                          {varsEntries.length === 0 ? (
+                            <span className="text-[11px] font-italic text-muted-foreground/60">
+                              No inputs collected
+                            </span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5">
+                              {varsEntries.map(([k, v]) => (
+                                <div
+                                  key={k}
+                                  className="inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-1 text-[11px]"
+                                >
+                                  <span className="font-medium text-primary font-mono">
+                                    {k}:
+                                  </span>
+                                  <span className="text-foreground">
+                                    {typeof v === "object"
+                                      ? JSON.stringify(v)
+                                      : String(v)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Status Cell */}
+                        <td className="px-4 py-3 align-top">
+                          <Badge
+                            variant="outline"
+                            className={cn("gap-1 text-[10px]", meta.classes)}
+                          >
+                            <StatusIcon className="h-3 w-3" />
+                            {meta.label}
+                          </Badge>
+                        </td>
+
+                        {/* Date Cell */}
+                        <td className="px-4 py-3 align-top text-muted-foreground whitespace-nowrap">
+                          {format(new Date(run.started_at), "MMM d, yyyy HH:mm")}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 2: Execution Timeline */}
+      {activeTab === "timeline" && (
+        <div className="mt-4 flex flex-col gap-2">
+          {runs.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-card/50 px-6 py-12 text-center text-sm text-muted-foreground">
+              No execution runs recorded yet.
+            </div>
+          ) : (
+            runs.map((run) => (
+              <RunCard
+                key={run.id}
+                run={run}
+                events={events.filter((e) => e.flow_run_id === run.id)}
+                expanded={expanded.has(run.id)}
+                onToggle={() => toggle(run.id)}
+              />
+            ))
+          )}
         </div>
       )}
     </div>
@@ -228,6 +490,7 @@ function RunCard({
         addSuffix: false,
       })
     : null;
+
   return (
     <div className="rounded-lg border border-border bg-card">
       <button
@@ -268,7 +531,7 @@ function RunCard({
         <div className="border-t border-border px-4 py-3">
           {Object.keys(run.vars).length > 0 && (
             <details className="mb-3">
-              <summary className="cursor-pointer text-xs text-muted-foreground">
+              <summary className="cursor-pointer text-xs text-muted-foreground font-medium">
                 Captured vars ({Object.keys(run.vars).length})
               </summary>
               <pre className="mt-2 overflow-x-auto rounded-md bg-background p-2 text-[11px] text-muted-foreground">
@@ -328,8 +591,6 @@ function EventLine({ ev }: { ev: EventRow }) {
 }
 
 function summarizePayload(payload: Record<string, unknown>): string {
-  // Show the keys that matter most to a human debugger; full JSON is
-  // available via the "Captured vars" details panel for the run.
   const keys = ["reply_id", "captured_key", "reason", "advancing_to"];
   for (const k of keys) {
     if (k in payload && payload[k] !== null && payload[k] !== undefined) {
