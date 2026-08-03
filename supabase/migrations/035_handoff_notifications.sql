@@ -50,8 +50,8 @@ BEGIN
   ELSE
     -- If unassigned, notify all owners and admins in the account
     FOR v_admin_record IN
-      SELECT user_id FROM account_members
-      WHERE account_id = p_account_id AND role IN ('owner', 'admin')
+      SELECT user_id FROM profiles
+      WHERE account_id = p_account_id AND account_role IN ('owner', 'admin')
     LOOP
       INSERT INTO notifications (
         account_id, user_id, type, conversation_id, contact_id,
@@ -76,3 +76,36 @@ $$;
 ALTER FUNCTION public.create_handoff_notification(UUID, UUID, TEXT) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.create_handoff_notification(UUID, UUID, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.create_handoff_notification(UUID, UUID, TEXT) TO authenticated, service_role;
+
+-- Automatic trigger when a conversation is flipped to pending or ai_autoreply_disabled is set
+CREATE OR REPLACE FUNCTION notify_conversation_handoff()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status = 'pending' OR NEW.ai_autoreply_disabled = true THEN
+      PERFORM public.create_handoff_notification(NEW.account_id, NEW.id, 'Handoff to human agent');
+    END IF;
+  ELSE
+    IF (NEW.status = 'pending' AND OLD.status IS DISTINCT FROM 'pending')
+       OR (NEW.ai_autoreply_disabled = true AND OLD.ai_autoreply_disabled = false) THEN
+      PERFORM public.create_handoff_notification(NEW.account_id, NEW.id, 'Handoff to human agent');
+    END IF;
+  END IF;
+
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'Failed to trigger handoff notification for conversation %: %', NEW.id, SQLERRM;
+  RETURN NEW;
+END;
+$$;
+
+ALTER FUNCTION notify_conversation_handoff() OWNER TO postgres;
+
+DROP TRIGGER IF EXISTS on_conversation_handoff ON conversations;
+CREATE TRIGGER on_conversation_handoff
+  AFTER INSERT OR UPDATE OF status, ai_autoreply_disabled ON conversations
+  FOR EACH ROW EXECUTE FUNCTION notify_conversation_handoff();
