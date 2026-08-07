@@ -2,7 +2,7 @@
 // /api/account
 //
 //   GET   — current caller's account + role. Any member.
-//   PATCH — rename the account.                  Admin+.
+//   PATCH — rename / brand the account.          Admin+.
 //
 // Why both verbs share a route file
 //   They speak about the same singular resource (the caller's
@@ -44,36 +44,60 @@ export async function PATCH(request: Request) {
 
     // Per-user limit on admin-class mutations. Bounds accidental
     // abuse (script run in a loop) and a compromised admin session
-    // spamming renames. Each admin endpoint keys its own bucket so
-    // one route doesn't starve another.
+    // spamming renames / logo changes. Each admin endpoint keys its
+    // own bucket so one route doesn't starve another.
     const limit = checkRateLimit(
-      `admin:rename:${ctx.userId}`,
+      `admin:branding:${ctx.userId}`,
       RATE_LIMITS.adminAction,
     );
     if (!limit.success) return rateLimitResponse(limit);
 
     const body = (await request.json().catch(() => null)) as
-      | { name?: unknown }
+      | { name?: unknown; logo_url?: unknown }
       | null;
     const rawName = body?.name;
+    const rawLogoUrl = body?.logo_url;
 
-    if (typeof rawName !== "string") {
+    if (rawName !== undefined && typeof rawName !== "string") {
       return NextResponse.json(
         { error: "'name' must be a string" },
         { status: 400 },
       );
     }
-
-    const name = rawName.trim();
-    if (name.length === 0) {
+    if (rawLogoUrl !== undefined && rawLogoUrl !== null && typeof rawLogoUrl !== "string") {
       return NextResponse.json(
-        { error: "Account name cannot be empty" },
+        { error: "'logo_url' must be a string or null" },
         { status: 400 },
       );
     }
-    if (name.length > MAX_NAME_LEN) {
+
+    const name = rawName?.trim() ?? "";
+    const logoUrl = rawLogoUrl === undefined ? undefined : (rawLogoUrl as string | null);
+    if (rawName !== undefined) {
+      if (name.length === 0) {
+        return NextResponse.json(
+          { error: "Account name cannot be empty" },
+          { status: 400 },
+        );
+      }
+      if (name.length > MAX_NAME_LEN) {
+        return NextResponse.json(
+          { error: `Account name must be ${MAX_NAME_LEN} characters or fewer` },
+          { status: 400 },
+        );
+      }
+    }
+
+    if (logoUrl !== undefined && logoUrl !== null && logoUrl.length > 2048) {
       return NextResponse.json(
-        { error: `Account name must be ${MAX_NAME_LEN} characters or fewer` },
+        { error: "logo_url must be 2048 characters or fewer" },
+        { status: 400 },
+      );
+    }
+
+    if (rawName === undefined && logoUrl === undefined) {
+      return NextResponse.json(
+        { error: "Provide 'name' and/or 'logo_url'" },
         { status: 400 },
       );
     }
@@ -81,11 +105,15 @@ export async function PATCH(request: Request) {
     // RLS allows this UPDATE because accounts_update requires
     // `is_account_member(id, 'admin')`, and requireRole already
     // guaranteed the caller is admin+.
+    const update: Record<string, unknown> = {};
+    if (rawName !== undefined) update.name = name;
+    if (logoUrl !== undefined) update.logo_url = logoUrl;
+
     const { data, error } = await ctx.supabase
       .from("accounts")
-      .update({ name })
+      .update(update)
       .eq("id", ctx.accountId)
-      .select("id, name")
+      .select("id, name, logo_url")
       .single();
 
     if (error) {

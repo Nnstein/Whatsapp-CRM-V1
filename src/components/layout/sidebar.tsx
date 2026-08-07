@@ -184,12 +184,20 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         {/* Logo row. On mobile we put a close button here; on desktop the
             close button is hidden since the sidebar is always-visible. */}
         <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <MessageSquare className="h-4 w-4" />
-            </div>
-            <span className="text-sm font-semibold text-foreground">
-              CRM Template for WhatsApp
+          <Link href="/dashboard" className="flex min-w-0 items-center gap-2">
+            {account?.logo_url ? (
+              <img
+                src={account.logo_url}
+                alt={account.name || 'Account logo'}
+                className="h-8 w-8 rounded-lg object-cover"
+              />
+            ) : (
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <MessageSquare className="h-4 w-4" />
+              </div>
+            )}
+            <span className="truncate text-sm font-semibold text-foreground">
+              {account?.name || 'CRM Template for WhatsApp'}
             </span>
           </Link>
           <button
