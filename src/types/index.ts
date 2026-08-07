@@ -45,6 +45,8 @@ export interface Profile {
 export interface Account {
   id: string;
   name: string;
+  /** Public URL of the account logo (sidebar brand). */
+  logo_url: string | null;
   /** auth.users.id of the immutable owner. */
   owner_user_id: string;
   created_at: string;
@@ -99,6 +101,7 @@ export interface Contact {
   email?: string;
   company?: string;
   avatar_url?: string;
+  language?: string | null;
   created_at: string;
   updated_at: string;
   /** Set when the AI enrichment engine last successfully extracted

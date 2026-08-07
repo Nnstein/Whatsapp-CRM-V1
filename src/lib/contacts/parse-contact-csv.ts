@@ -8,6 +8,7 @@ export interface ParsedContactRow {
   name?: string;
   email?: string;
   company?: string;
+  language?: string;
   /** Tag names from the optional `tags` column (comma/semicolon separated). */
   tagNames: string[];
 }
@@ -57,6 +58,7 @@ export function parseContactCsv(text: string): ParseContactCsvResult {
   const nameIdx = headers.indexOf('name');
   const emailIdx = headers.indexOf('email');
   const companyIdx = headers.indexOf('company');
+  const languageIdx = headers.findIndex((h) => h === 'language' || h === 'lang');
   const tagsIdx = headers.indexOf('tags');
 
   const rows: ParsedContactRow[] = [];
@@ -68,6 +70,8 @@ export function parseContactCsv(text: string): ParseContactCsvResult {
     const values = parseCsvLine(line);
     const phone = values[phoneIdx]?.replace(/["']/g, '').trim();
     if (!phone) continue;
+
+    const rawLang = languageIdx >= 0 ? values[languageIdx]?.replace(/["']/g, '').trim() : undefined;
 
     rows.push({
       phone,
@@ -83,6 +87,7 @@ export function parseContactCsv(text: string): ParseContactCsvResult {
         companyIdx >= 0
           ? values[companyIdx]?.replace(/["']/g, '').trim() || undefined
           : undefined,
+      language: rawLang || undefined,
       tagNames:
         tagsIdx >= 0 ? parseTagCell(values[tagsIdx]?.replace(/["']/g, '')) : [],
     });

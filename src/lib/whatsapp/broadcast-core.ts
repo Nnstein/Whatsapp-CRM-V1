@@ -29,6 +29,7 @@ import {
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard';
 import type { MessageTemplate } from '@/types';
 import { findOrCreateContact } from '@/lib/api/v1/contacts';
+import { normalizeLanguageCode } from '@/lib/i18n/language-detector';
 
 /** Thrown by createBroadcast on a caller-visible failure; route maps it. */
 export class BroadcastError extends Error {
@@ -62,6 +63,7 @@ interface PlannedRecipient {
   recipientRowId: string;
   phone: string;
   params: string[];
+  contactLanguage?: string | null;
 }
 
 export interface BroadcastPlan {
@@ -182,9 +184,12 @@ export async function createBroadcast(
   }
   const templateRow = (rawTemplateRow as MessageTemplate | null) ?? null;
 
-  // Resolve each recipient to a contact. Invalid phones are dropped
-  // (counted as rejected) rather than aborting the whole broadcast.
-  const resolved: { contactId: string; phone: string; params: string[] }[] = [];
+  const resolved: {
+    contactId: string;
+    phone: string;
+    contactLanguage?: string | null;
+    params: string[];
+  }[] = [];
   let rejected = 0;
   for (const r of recipients) {
     const sanitized = sanitizePhoneForMeta(typeof r.to === 'string' ? r.to : '');
@@ -192,12 +197,13 @@ export async function createBroadcast(
       rejected++;
       continue;
     }
-    const { id } = await findOrCreateContact(db, accountId, auditUserId, {
+    const { id, language } = await findOrCreateContact(db, accountId, auditUserId, {
       phone: sanitized,
     });
     resolved.push({
       contactId: id,
       phone: sanitized,
+      contactLanguage: language,
       params: Array.isArray(r.params)
         ? r.params.filter((p): p is string => typeof p === 'string')
         : [],
@@ -271,7 +277,12 @@ export async function createBroadcast(
   const byContact = new Map(deduped.map((r) => [r.contactId, r]));
   const planned: PlannedRecipient[] = recipientRows.map((row) => {
     const r = byContact.get(row.contact_id as string)!;
-    return { recipientRowId: row.id as string, phone: r.phone, params: r.params };
+    return {
+      recipientRowId: row.id as string,
+      phone: r.phone,
+      params: r.params,
+      contactLanguage: r.contactLanguage,
+    };
   });
 
   return {
@@ -311,6 +322,11 @@ export async function deliverBroadcast(
     let sentMessageId: string | null = null;
     let lastError: string | null = null;
 
+    // Use contact's identified language (Gulf Arabic 'ar', Hindi 'hi', or fallback)
+    const targetLanguage = recipient.contactLanguage
+      ? normalizeLanguageCode(recipient.contactLanguage)
+      : plan.templateLanguage;
+
     for (const variant of variants) {
       try {
         const result = await sendTemplateMessage({
@@ -318,7 +334,7 @@ export async function deliverBroadcast(
           accessToken: plan.accessToken,
           to: variant,
           templateName: plan.templateName,
-          language: plan.templateLanguage,
+          language: targetLanguage,
           template: plan.templateRow ?? undefined,
           params: recipient.params,
         });

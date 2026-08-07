@@ -52,6 +52,7 @@ export function ContactForm({
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [company, setCompany] = useState('');
+  const [language, setLanguage] = useState('en');
   const [saving, setSaving] = useState(false);
 
   // Duplicate-phone detection for NEW contacts. `exact` (same digits)
@@ -73,6 +74,7 @@ export function ContactForm({
       setPhone(contact?.phone ?? '');
       setEmail(contact?.email ?? '');
       setCompany(contact?.company ?? '');
+      setLanguage(contact?.language ?? 'en');
       setSelectedTagIds(contactTags.map((ct) => ct.tag_id));
       setDupMatch(null);
       fetchTags();
@@ -154,6 +156,7 @@ export function ContactForm({
             phone: phone.trim(),
             email: email.trim() || null,
             company: company.trim() || null,
+            language: language || 'en',
             updated_at: new Date().toISOString(),
           })
           .eq('id', contactId);
@@ -168,6 +171,7 @@ export function ContactForm({
             phone: phone.trim(),
             email: email.trim() || null,
             company: company.trim() || null,
+            language: language || 'en',
           })
           .select('id')
           .single();
@@ -322,6 +326,22 @@ export function ContactForm({
               placeholder="Acme Inc."
               className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="cf-language" className="text-muted-foreground">
+              Primary Language
+            </Label>
+            <select
+              id="cf-language"
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+              className="flex h-9 w-full rounded-md border border-border bg-muted px-3 py-1 text-sm shadow-sm transition-colors text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="en">🇬🇧 English</option>
+              <option value="ar">🇦🇪 Gulf Arabic (العربية)</option>
+              <option value="hi">🇮🇳 Hindi (हिन्दी)</option>
+            </select>
           </div>
 
           <div className="space-y-2">

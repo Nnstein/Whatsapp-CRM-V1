@@ -56,6 +56,7 @@ import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { getLanguageLabel } from '@/lib/i18n/language-detector';
 
 const PAGE_SIZE = 25;
 
@@ -544,6 +545,7 @@ export default function ContactsPage() {
               <TableHead className="text-muted-foreground">Phone</TableHead>
               <TableHead className="text-muted-foreground hidden md:table-cell">Email</TableHead>
               <TableHead className="text-muted-foreground hidden lg:table-cell">Company</TableHead>
+              <TableHead className="text-muted-foreground hidden sm:table-cell">Language</TableHead>
               <TableHead className="text-muted-foreground hidden md:table-cell">Tags</TableHead>
               <TableHead className="text-muted-foreground hidden lg:table-cell">Created</TableHead>
               <TableHead className="text-muted-foreground w-12" />
@@ -610,6 +612,9 @@ export default function ContactsPage() {
                   </TableCell>
                   <TableCell className="text-muted-foreground hidden lg:table-cell text-sm">
                     {contact.company || <span className="text-muted-foreground">-</span>}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground hidden sm:table-cell text-xs font-medium">
+                    {getLanguageLabel(contact.language)}
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
                     <div className="flex flex-wrap gap-1">

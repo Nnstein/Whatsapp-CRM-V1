@@ -8,6 +8,7 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchContactEnrichment } from '@/lib/ai/extract-contact'
+import { detectLanguageFromText } from '@/lib/i18n/language-detector'
 import { loadAiConfig } from '@/lib/ai/config'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import {
@@ -615,6 +616,15 @@ async function processMessage(
   // Parse message content based on type
   const { contentText, mediaUrl, mediaType, interactiveReplyId } =
     await parseMessageContent(message, accessToken)
+
+  // Auto-detect contact language (Gulf Arabic, Hindi, English) and enrich contact record
+  if (contentText && contactRecord?.id) {
+    const detectedLang = detectLanguageFromText(contentText)
+    await supabaseAdmin()
+      .from('contacts')
+      .update({ language: detectedLang, updated_at: new Date().toISOString() })
+      .eq('id', contactRecord.id)
+  }
 
   // Resolve swipe-reply context if present. A missing parent is fine —
   // we just store NULL and the UI renders the message without a quote.

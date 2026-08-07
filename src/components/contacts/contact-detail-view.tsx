@@ -75,6 +75,7 @@ export function ContactDetailView({
   const [editPhone, setEditPhone] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editCompany, setEditCompany] = useState('');
+  const [editLanguage, setEditLanguage] = useState('en');
   const [savingDetails, setSavingDetails] = useState(false);
 
   // Tags tab
@@ -114,6 +115,7 @@ export function ContactDetailView({
       setEditPhone(data.phone);
       setEditEmail(data.email ?? '');
       setEditCompany(data.company ?? '');
+      setEditLanguage(data.language ?? 'en');
     }
     setLoading(false);
   }, [contactId, supabase]);
@@ -222,6 +224,7 @@ export function ContactDetailView({
         phone: editPhone.trim(),
         email: editEmail.trim() || null,
         company: editCompany.trim() || null,
+        language: editLanguage || 'en',
         updated_at: new Date().toISOString(),
       })
       .eq('id', contactId);
@@ -544,6 +547,18 @@ export function ContactDetailView({
                       onChange={(e) => setEditCompany(e.target.value)}
                       className="bg-muted border-border text-foreground h-8 text-sm"
                     />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-muted-foreground text-xs">Primary Language</Label>
+                    <select
+                      value={editLanguage}
+                      onChange={(e) => setEditLanguage(e.target.value)}
+                      className="flex h-8 w-full rounded-md border border-border bg-muted px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      <option value="en">🇬🇧 English</option>
+                      <option value="ar">🇦🇪 Gulf Arabic (العربية)</option>
+                      <option value="hi">🇮🇳 Hindi (हिन्दी)</option>
+                    </select>
                   </div>
                   <Button
                     onClick={saveDetails}

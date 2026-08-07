@@ -19,6 +19,7 @@ export interface ExtractedContactDetails {
   extracted_name: string | null
   extracted_email: string | null
   extracted_company: string | null
+  detected_language: 'ar' | 'hi' | 'en' | null
   intent_tags: string[]
   summary_note: string | null
 }
@@ -69,10 +70,18 @@ export function parseExtractionResponse(raw: string): ExtractedContactDetails | 
       .trim()
     const parsed = JSON.parse(cleaned)
     if (typeof parsed !== 'object' || parsed === null) return null
+    const lang =
+      typeof parsed.detected_language === 'string'
+        ? parsed.detected_language.toLowerCase().trim()
+        : null
+    const detected_language =
+      lang === 'ar' || lang === 'hi' || lang === 'en' ? lang : null
+
     return {
       extracted_name: sanitizeName(parsed.extracted_name),
       extracted_email: validateEmail(parsed.extracted_email),
       extracted_company: sanitizeCompany(parsed.extracted_company),
+      detected_language,
       intent_tags: Array.isArray(parsed.intent_tags)
         ? (parsed.intent_tags as unknown[])
             .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
@@ -97,6 +106,7 @@ Return a single JSON object — no markdown, no explanation — with exactly the
   "extracted_name": "<full name the customer said they are, or null>",
   "extracted_email": "<email address the customer gave, or null>",
   "extracted_company": "<company or organisation the customer mentioned, or null>",
+  "detected_language": "<primary language code used by customer: 'ar' for Gulf Arabic/Arabic, 'hi' for Hindi/Hinglish, or 'en' for English>",
   "intent_tags": ["<tag1>", "<tag2>"],
   "summary_note": "<one concise sentence summarising what the customer wants, or null>"
 }
@@ -218,6 +228,9 @@ export async function applyContactEnrichment(
   }
   if (details.extracted_company && isCompanyMissing) {
     patch.company = details.extracted_company
+  }
+  if (details.detected_language) {
+    patch.language = details.detected_language
   }
 
   if (Object.keys(patch).length > 0) {

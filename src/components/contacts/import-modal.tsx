@@ -17,6 +17,7 @@ import {
   resolveImportTagIds,
   type ContactTagAssignment,
 } from '@/lib/contacts/resolve-import-tags';
+import { normalizeLanguageCode } from '@/lib/i18n/language-detector';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
@@ -276,6 +277,7 @@ export function ImportModal({
           name: row.name || null,
           email: row.email || null,
           company: row.company || null,
+          language: normalizeLanguageCode(row.language),
         }));
 
         const { data, error } = await supabase

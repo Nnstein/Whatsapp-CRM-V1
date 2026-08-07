@@ -98,20 +98,19 @@ export interface ContactInput {
   name?: string | null;
   email?: string | null;
   company?: string | null;
+  language?: string | null;
 }
 
 /**
  * Find (by fuzzy phone match) or create a contact in `accountId`.
- * Returns the contact id and whether it was created. Reuses the shared
- * `findExistingContact` dedupe + unique-violation race backstop so an
- * API-created contact is indistinguishable from a webhook-created one.
+ * Returns the contact id, created status, and language.
  */
 export async function findOrCreateContact(
   db: SupabaseClient,
   accountId: string,
   auditUserId: string,
   input: ContactInput
-): Promise<{ id: string; created: boolean }> {
+): Promise<{ id: string; created: boolean; language: string | null }> {
   const sanitized = sanitizePhoneForMeta(input.phone);
   if (!isValidE164(sanitized)) {
     throw new ContactError(
@@ -121,7 +120,13 @@ export async function findOrCreateContact(
   }
 
   const existing = await findExistingContact(db, accountId, sanitized);
-  if (existing) return { id: existing.id, created: false };
+  if (existing) {
+    return {
+      id: existing.id,
+      created: false,
+      language: (existing.language as string | null) ?? null,
+    };
+  }
 
   const { data: created, error } = await db
     .from('contacts')
@@ -132,22 +137,30 @@ export async function findOrCreateContact(
       name: input.name ?? sanitized,
       email: input.email ?? null,
       company: input.company ?? null,
+      language: input.language ?? 'en',
     })
-    .select('id')
+    .select('id, language')
     .single();
 
   if (error || !created) {
-    // Lost a race against a concurrent create — the unique index
-    // rejected the duplicate. Re-resolve to the winner.
     if (isUniqueViolation(error)) {
       const raced = await findExistingContact(db, accountId, sanitized);
-      if (raced) return { id: raced.id, created: false };
+      if (raced) {
+        return {
+          id: raced.id,
+          created: false,
+          language: (raced.language as string | null) ?? null,
+        };
+      }
     }
-    console.error('[api/v1/contacts] create error:', error);
-    throw new ContactError('Failed to create contact', 500);
+    throw new ContactError(`Failed to create contact: ${error?.message}`, 500);
   }
 
-  return { id: created.id, created: true };
+  return {
+    id: created.id,
+    created: true,
+    language: (created.language as string | null) ?? 'en',
+  };
 }
 
 /**
