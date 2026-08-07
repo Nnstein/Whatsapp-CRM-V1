@@ -12,7 +12,7 @@ export async function GET() {
     // - agent/viewer see only assigned numbers
     const { data: configs, error: configError } = await ctx.supabase
       .from('whatsapp_config')
-      .select('id, user_id, account_id, phone_number_id, label, is_default, sort_order, waba_id, status, connected_at, registered_at, subscribed_apps_at, last_registration_error')
+      .select('id, user_id, account_id, phone_number_id, label, is_default, sort_order, inbox_group, waba_id, status, connected_at, registered_at, subscribed_apps_at, last_registration_error')
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
 

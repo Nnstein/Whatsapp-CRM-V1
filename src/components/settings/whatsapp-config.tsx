@@ -18,6 +18,7 @@ import {
   Star,
   Check,
   ShieldCheck,
+  FolderOpen,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
@@ -35,12 +36,14 @@ import {
   AccordionContent,
 } from '@/components/ui/accordion';
 import type { WhatsAppConfig as WhatsAppConfigType } from '@/types';
+import { VocabPickerDialog } from './vocab-picker-dialog';
+import { MAX_INBOX_GROUP_LENGTH, type VocabEntry } from '@/lib/presets';
 
 const MASKED_TOKEN = '••••••••••••••••';
 
 export function WhatsAppConfig() {
   const supabase = createClient();
-  const { user, accountId, loading: authLoading, profileLoading } = useAuth();
+  const { user, accountId, loading: authLoading, profileLoading, canEditSettings } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -70,6 +73,13 @@ export function WhatsAppConfig() {
   const [verifyToken, setVerifyToken] = useState('');
   const [pin, setPin] = useState('');
   const [tokenEdited, setTokenEdited] = useState(false);
+
+  // Inbox groups (migration 039): preset + custom vocabulary, and
+  // the number currently being grouped in the picker dialog.
+  const [groupPresets, setGroupPresets] = useState<readonly string[]>([]);
+  const [customGroups, setCustomGroups] = useState<VocabEntry[]>([]);
+  const [editingGroupConfig, setEditingGroupConfig] = useState<WhatsAppConfigType | null>(null);
+  const [savingGroup, setSavingGroup] = useState(false);
 
   const loadedAccountIdRef = useRef<string | null>(null);
 
@@ -103,6 +113,18 @@ export function WhatsAppConfig() {
     }
   }, [supabase]);
 
+  const fetchGroups = useCallback(async () => {
+    try {
+      const res = await fetch('/api/account/inbox-groups', { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data.presets)) setGroupPresets(data.presets);
+      if (Array.isArray(data.custom)) setCustomGroups(data.custom);
+    } catch (err) {
+      console.error('fetchGroups error:', err);
+    }
+  }, []);
+
   useEffect(() => {
     if (authLoading || profileLoading) return;
     if (!user || !accountId) {
@@ -113,7 +135,8 @@ export function WhatsAppConfig() {
     if (loadedAccountIdRef.current === accountId) return;
     loadedAccountIdRef.current = accountId;
     fetchConfigs(accountId);
-  }, [authLoading, profileLoading, user?.id, accountId, fetchConfigs]);
+    void fetchGroups();
+  }, [authLoading, profileLoading, user?.id, accountId, fetchConfigs, fetchGroups]);
 
   function startAdding() {
     setEditingConfig(null);
@@ -294,6 +317,82 @@ export function WhatsAppConfig() {
     }
   }
 
+  async function handleSaveGroup(value: string | null) {
+    if (!editingGroupConfig) return;
+    setSavingGroup(true);
+    try {
+      const res = await fetch(`/api/account/whatsapp-numbers/${editingGroupConfig.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inbox_group: value }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Failed to update inbox group');
+        return;
+      }
+
+      toast.success(
+        value
+          ? `Moved "${editingGroupConfig.label}" to group "${value}"`
+          : `Removed "${editingGroupConfig.label}" from its group`,
+      );
+      setConfigs((prev) =>
+        prev.map((c) =>
+          c.id === editingGroupConfig.id ? { ...c, inbox_group: value } : c,
+        ),
+      );
+      setEditingGroupConfig(null);
+    } catch (err) {
+      console.error('Group change error:', err);
+      toast.error('Could not reach the server');
+    } finally {
+      setSavingGroup(false);
+    }
+  }
+
+  async function handleCreateGroup(name: string): Promise<boolean> {
+    try {
+      const res = await fetch('/api/account/inbox-groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Failed to create custom group');
+        return false;
+      }
+
+      const data = (await res.json()) as { entry: VocabEntry };
+      setCustomGroups((prev) =>
+        [...prev, data.entry].sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      return true;
+    } catch (err) {
+      console.error('Create group error:', err);
+      toast.error('Could not reach the server');
+      return false;
+    }
+  }
+
+  async function handleDeleteGroup(id: string) {
+    try {
+      const res = await fetch(`/api/account/inbox-groups/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Failed to delete custom group');
+        return;
+      }
+      setCustomGroups((prev) => prev.filter((g) => g.id !== id));
+    } catch (err) {
+      console.error('Delete group error:', err);
+      toast.error('Could not reach the server');
+    }
+  }
+
   function handleCopyWebhookUrl() {
     navigator.clipboard.writeText(webhookUrl);
     toast.success('Webhook URL copied to clipboard');
@@ -365,6 +464,14 @@ export function WhatsAppConfig() {
                                 <Star className="size-3 fill-primary mr-1" /> Default Inbox
                               </Badge>
                             )}
+                            {cfg.inbox_group && (
+                              <Badge
+                                variant="outline"
+                                className="border-border bg-muted/40 text-muted-foreground text-[10px] font-medium"
+                              >
+                                <FolderOpen className="size-3 mr-1" /> {cfg.inbox_group}
+                              </Badge>
+                            )}
                             <Badge
                               variant="outline"
                               className={
@@ -400,6 +507,16 @@ export function WhatsAppConfig() {
                           >
                             <Edit2 className="size-3 mr-1" /> Edit
                           </Button>
+                          {canEditSettings && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setEditingGroupConfig(cfg)}
+                              className="h-8 text-xs border-border text-muted-foreground hover:text-foreground"
+                            >
+                              <FolderOpen className="size-3 mr-1" /> Group
+                            </Button>
+                          )}
                           <Button
                             variant="outline"
                             size="sm"
@@ -686,6 +803,25 @@ export function WhatsAppConfig() {
           </Card>
         </div>
       </div>
+
+      <VocabPickerDialog
+        open={editingGroupConfig !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingGroupConfig(null);
+        }}
+        title="Group inbox"
+        description={`Group "${editingGroupConfig?.label}" with related numbers in the inbox selector — pick a suggestion or create your own group.`}
+        value={editingGroupConfig?.inbox_group ?? null}
+        presets={groupPresets}
+        custom={customGroups}
+        saving={savingGroup}
+        onSave={(value) => void handleSaveGroup(value)}
+        onCreateCustom={handleCreateGroup}
+        onDeleteCustom={(id) => void handleDeleteGroup(id)}
+        noneLabel="Ungrouped"
+        createPlaceholder="Create a custom group..."
+        maxLength={MAX_INBOX_GROUP_LENGTH}
+      />
     </section>
   );
 }

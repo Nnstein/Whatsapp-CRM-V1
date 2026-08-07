@@ -7,6 +7,13 @@ export interface Profile {
   email: string;
   avatar_url?: string;
   /**
+   * Free-text organisational title (e.g. "Sales", "Customer Support 1").
+   * Added by `039_member_titles_inbox_groups.sql`. Cosmetic only —
+   * permissions are always governed by `account_role`. Set via the
+   * `set_member_title` RPC (admin+).
+   */
+  title?: string | null;
+  /**
    * Legacy free-form role column from migration 001. Never read
    * by the app since 017_account_sharing.sql introduced the typed
    * `account_role` enum. Flagged for removal in a later cleanup
@@ -67,6 +74,8 @@ export interface AccountMember {
   avatar_url: string | null;
   role: AccountRole;
   joined_at: string;
+  /** Free-text member title (migration 039). Cosmetic; see Profile.title. */
+  title?: string | null;
   assigned_whatsapp_config_ids?: string[];
 }
 
@@ -255,6 +264,12 @@ export interface WhatsAppConfig {
   is_default: boolean;
   /** Ordering hint for UI lists. */
   sort_order: number;
+  /**
+   * Free-text inbox group label (e.g. "Support", "Sales") used to
+   * group numbers in the inbox selector. Added by
+   * `039_member_titles_inbox_groups.sql`. NULL = ungrouped.
+   */
+  inbox_group?: string | null;
   waba_id?: string;
   access_token: string;
   verify_token?: string;

@@ -74,6 +74,8 @@ import {
 import { InviteMemberDialog } from './invite-member-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { ROLE_META } from './role-meta';
+import { VocabPickerDialog } from './vocab-picker-dialog';
+import { MAX_MEMBER_TITLE_LENGTH, type VocabEntry } from '@/lib/presets';
 
 interface Member {
   user_id: string;
@@ -81,6 +83,7 @@ interface Member {
   email: string | null;
   avatar_url: string | null;
   role: AccountRole;
+  title?: string | null;
   joined_at: string;
   assigned_whatsapp_config_ids?: string[];
 }
@@ -129,6 +132,12 @@ export function MembersTab() {
   const [editingMemberNumbers, setEditingMemberNumbers] = useState<Member | null>(null);
   const [selectedConfigIds, setSelectedConfigIds] = useState<string[]>([]);
   const [savingNumbers, setSavingNumbers] = useState(false);
+  // Member titles (migration 039): preset + custom vocabulary, and
+  // the row currently being edited in the picker dialog.
+  const [titlePresets, setTitlePresets] = useState<readonly string[]>([]);
+  const [customTitles, setCustomTitles] = useState<VocabEntry[]>([]);
+  const [editingMemberTitle, setEditingMemberTitle] = useState<Member | null>(null);
+  const [savingTitle, setSavingTitle] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -139,12 +148,13 @@ export function MembersTab() {
 
   const loadEverything = useCallback(async () => {
     try {
-      const [mres, ires, nres] = await Promise.all([
+      const [mres, ires, nres, tres] = await Promise.all([
         fetch('/api/account/members', { cache: 'no-store' }),
         canManageMembers
           ? fetch('/api/account/invitations', { cache: 'no-store' })
           : Promise.resolve(null),
         fetch('/api/account/whatsapp-numbers', { cache: 'no-store' }),
+        fetch('/api/account/titles', { cache: 'no-store' }),
       ]);
 
       if (!mres.ok) {
@@ -172,6 +182,12 @@ export function MembersTab() {
         if (Array.isArray(ndata.whatsapp_numbers)) {
           setWhatsappNumbers(ndata.whatsapp_numbers);
         }
+      }
+
+      if (tres.ok) {
+        const tdata = await tres.json();
+        if (Array.isArray(tdata.presets)) setTitlePresets(tdata.presets);
+        if (Array.isArray(tdata.custom)) setCustomTitles(tdata.custom);
       }
     } catch (err) {
       console.error('[MembersTab] load error:', err);
@@ -215,6 +231,82 @@ export function MembersTab() {
       toast.error('Could not reach the server');
     } finally {
       setSavingNumbers(false);
+    }
+  }
+
+  async function handleSaveTitle(value: string | null) {
+    if (!editingMemberTitle) return;
+    setSavingTitle(true);
+    try {
+      const res = await fetch(`/api/account/members/${editingMemberTitle.user_id}/title`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: value }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Failed to update title');
+        return;
+      }
+
+      toast.success(
+        value
+          ? `Set ${editingMemberTitle.full_name || 'member'}'s title to "${value}"`
+          : `Cleared ${editingMemberTitle.full_name || 'member'}'s title`,
+      );
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.user_id === editingMemberTitle.user_id ? { ...m, title: value } : m,
+        ),
+      );
+      setEditingMemberTitle(null);
+    } catch (err) {
+      console.error('[MembersTab] title change error:', err);
+      toast.error('Could not reach the server');
+    } finally {
+      setSavingTitle(false);
+    }
+  }
+
+  async function handleCreateTitle(name: string): Promise<boolean> {
+    try {
+      const res = await fetch('/api/account/titles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Failed to create custom title');
+        return false;
+      }
+
+      const data = (await res.json()) as { entry: VocabEntry };
+      setCustomTitles((prev) =>
+        [...prev, data.entry].sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      return true;
+    } catch (err) {
+      console.error('[MembersTab] create title error:', err);
+      toast.error('Could not reach the server');
+      return false;
+    }
+  }
+
+  async function handleDeleteTitle(id: string) {
+    try {
+      const res = await fetch(`/api/account/titles/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Failed to delete custom title');
+        return;
+      }
+      setCustomTitles((prev) => prev.filter((t) => t.id !== id));
+    } catch (err) {
+      console.error('[MembersTab] delete title error:', err);
+      toast.error('Could not reach the server');
     }
   }
 
@@ -428,6 +520,14 @@ export function MembersTab() {
                             You
                           </Badge>
                         )}
+                        {member.title && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] py-0 px-1.5 font-normal bg-primary/5 text-primary border-primary/20"
+                          >
+                            {member.title}
+                          </Badge>
+                        )}
                       </div>
                       {member.email && (
                         <p className="truncate text-xs text-muted-foreground">
@@ -499,6 +599,21 @@ export function MembersTab() {
                         <RoleIcon className="size-3.5" />
                         {roleMeta.label}
                       </span>
+                    )}
+
+                    {/* Title editor. Titles are cosmetic (unlike role /
+                        remove), so they're allowed on every row — the
+                        owner and even self ("Founder", "CEO"). */}
+                    {canManageMembers && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEditingMemberTitle(member)}
+                        disabled={isBusy}
+                        className="border-border text-muted-foreground hover:text-foreground text-xs h-9 px-2"
+                      >
+                        {member.title ? `Title: ${member.title}` : 'Title'}
+                      </Button>
                     )}
 
                     {canManageMembers && !isOwnerRow && !isSelf && whatsappNumbers.length > 0 && (
@@ -762,6 +877,25 @@ export function MembersTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <VocabPickerDialog
+        open={editingMemberTitle !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingMemberTitle(null);
+        }}
+        title="Edit member title"
+        description={`Choose a title for ${editingMemberTitle?.full_name || 'this member'} — pick a suggestion or create your own. Titles are labels only; permissions come from the role.`}
+        value={editingMemberTitle?.title ?? null}
+        presets={titlePresets}
+        custom={customTitles}
+        saving={savingTitle}
+        onSave={(value) => void handleSaveTitle(value)}
+        onCreateCustom={handleCreateTitle}
+        onDeleteCustom={(id) => void handleDeleteTitle(id)}
+        noneLabel="No title"
+        createPlaceholder="Create a custom title..."
+        maxLength={MAX_MEMBER_TITLE_LENGTH}
+      />
     </section>
   );
 }

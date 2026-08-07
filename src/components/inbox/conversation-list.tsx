@@ -16,7 +16,9 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -201,6 +203,29 @@ export function ConversationList({
     return m;
   }, [whatsappNumbers]);
 
+  // Group numbers by their inbox_group label (migration 039) for the
+  // selector dropdown. Groups sort alphabetically; ungrouped numbers
+  // come last under an "Ungrouped" label (only shown when at least
+  // one group exists — otherwise the list stays flat as before).
+  const groupedNumbers = useMemo(() => {
+    const groups = new Map<string, typeof whatsappNumbers>();
+    const ungrouped: typeof whatsappNumbers = [];
+    for (const num of whatsappNumbers) {
+      const g = num.inbox_group?.trim();
+      if (g) {
+        const arr = groups.get(g) ?? [];
+        arr.push(num);
+        groups.set(g, arr);
+      } else {
+        ungrouped.push(num);
+      }
+    }
+    const sorted = Array.from(groups.entries()).sort(([a], [b]) =>
+      a.localeCompare(b)
+    );
+    return { groups: sorted, ungrouped, hasGroups: sorted.length > 0 };
+  }, [whatsappNumbers]);
+
   const filtered = useMemo(() => {
     let result = conversations;
 
@@ -298,30 +323,59 @@ export function ConversationList({
                 </div>
                 <span className="text-[10px] text-muted-foreground">{whatsappNumbers.length} numbers</span>
               </DropdownMenuItem>
-              {whatsappNumbers.map((num) => {
-                const numColor = numberColorsMap.get(num.id);
-                return (
-                  <DropdownMenuItem
-                    key={num.id}
-                    onClick={() => setSelectedNumberId(num.id)}
-                    className={cn(
-                      "text-xs flex items-center justify-between gap-2",
-                      selectedNumberId === num.id ? "text-primary font-semibold" : "text-popover-foreground"
-                    )}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={cn("h-2 w-2 rounded-full shrink-0", numColor?.dot ?? "bg-emerald-500")} />
-                      <div className="flex flex-col min-w-0">
-                        <span className="truncate">{num.label}</span>
-                        <span className="text-[10px] text-muted-foreground truncate">{num.phone_number_id}</span>
+              {(() => {
+                const renderNumberItem = (num: (typeof whatsappNumbers)[number]) => {
+                  const numColor = numberColorsMap.get(num.id);
+                  return (
+                    <DropdownMenuItem
+                      key={num.id}
+                      onClick={() => setSelectedNumberId(num.id)}
+                      className={cn(
+                        "text-xs flex items-center justify-between gap-2",
+                        selectedNumberId === num.id ? "text-primary font-semibold" : "text-popover-foreground"
+                      )}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={cn("h-2 w-2 rounded-full shrink-0", numColor?.dot ?? "bg-emerald-500")} />
+                        <div className="flex flex-col min-w-0">
+                          <span className="truncate">{num.label}</span>
+                          <span className="text-[10px] text-muted-foreground truncate">{num.phone_number_id}</span>
+                        </div>
                       </div>
-                    </div>
-                    {num.is_default && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium shrink-0">Default</span>
+                      {num.is_default && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium shrink-0">Default</span>
+                      )}
+                    </DropdownMenuItem>
+                  );
+                };
+
+                // Flat list when no groups are in use — identical to
+                // the pre-grouping selector.
+                if (!groupedNumbers.hasGroups) {
+                  return whatsappNumbers.map(renderNumberItem);
+                }
+
+                return (
+                  <>
+                    {groupedNumbers.groups.map(([groupName, nums]) => (
+                      <DropdownMenuGroup key={groupName}>
+                        <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          {groupName}
+                        </DropdownMenuLabel>
+                        {nums.map(renderNumberItem)}
+                      </DropdownMenuGroup>
+                    ))}
+                    {groupedNumbers.ungrouped.length > 0 && (
+                      <DropdownMenuGroup>
+                        <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Ungrouped
+                        </DropdownMenuLabel>
+                        {groupedNumbers.ungrouped.map(renderNumberItem)}
+                      </DropdownMenuGroup>
                     )}
-                  </DropdownMenuItem>
+                  </>
                 );
-              })}
+              })()}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
