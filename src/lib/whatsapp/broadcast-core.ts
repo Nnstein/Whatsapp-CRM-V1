@@ -77,6 +77,7 @@ export interface BroadcastPlan {
   planned: PlannedRecipient[];
   /** Phones rejected up front (invalid E.164) — counted as failed. */
   rejected: number;
+  accountId?: string;
 }
 
 const MAX_RECIPIENTS = 1000;
@@ -295,6 +296,7 @@ export async function createBroadcast(
     templateRow,
     planned,
     rejected,
+    accountId,
   };
 }
 
@@ -317,15 +319,50 @@ export async function deliverBroadcast(
 ): Promise<void> {
   let sentCount = 0;
 
+  // Pre-fetch available approved template language codes for this template
+  // to prevent Meta Error 102 (missing template variant for requested language).
+  let availableLanguages: string[] = [];
+  if (plan.accountId) {
+    try {
+      const { data: tmpls } = await db
+        .from('message_templates')
+        .select('language')
+        .eq('account_id', plan.accountId)
+        .eq('name', plan.templateName);
+      if (tmpls) {
+        availableLanguages = tmpls
+          .map((t) => t.language)
+          .filter((l): l is string => Boolean(l));
+      }
+    } catch {
+      // Non-fatal query error; will fall back cleanly below.
+    }
+  }
+
   for (const recipient of plan.planned) {
     const variants = phoneVariants(recipient.phone);
     let sentMessageId: string | null = null;
     let lastError: string | null = null;
 
     // Use contact's identified language (Gulf Arabic 'ar', Hindi 'hi', or fallback)
-    const targetLanguage = recipient.contactLanguage
-      ? normalizeLanguageCode(recipient.contactLanguage)
-      : plan.templateLanguage;
+    let targetLanguage = plan.templateLanguage;
+    if (recipient.contactLanguage) {
+      const norm = normalizeLanguageCode(recipient.contactLanguage);
+      if (availableLanguages.length > 0) {
+        // Verify local message_templates has an approved matching variant for this language
+        const match = availableLanguages.find(
+          (lang) =>
+            lang.toLowerCase() === norm.toLowerCase() ||
+            lang.toLowerCase().startsWith(norm.toLowerCase() + '_') ||
+            lang.toLowerCase().startsWith(norm.toLowerCase() + '-')
+        );
+        if (match) {
+          targetLanguage = match;
+        }
+      } else {
+        targetLanguage = norm;
+      }
+    }
 
     for (const variant of variants) {
       try {

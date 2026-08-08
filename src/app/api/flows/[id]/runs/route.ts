@@ -17,7 +17,7 @@ import { createClient } from '@/lib/supabase/server'
  * the dashboard surface here is for debugging, not heavy querying.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params
@@ -29,6 +29,17 @@ export async function GET(
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const { searchParams } = new URL(request.url)
+  const limitParam = searchParams.get('limit')
+  const pageParam = searchParams.get('page')
+
+  const limit =
+    limitParam === 'all'
+      ? 1000
+      : Math.min(Math.max(parseInt(limitParam || '50', 10) || 50, 1), 1000)
+  const page = Math.max(parseInt(pageParam || '1', 10) || 1, 1)
+  const offset = (page - 1) * limit
 
   // Confirm flow exists + caller owns it (RLS does this) before doing
   // the run query — gives us a clean 404 instead of empty array.
@@ -51,7 +62,7 @@ export async function GET(
     )
     .eq('flow_id', id)
     .order('started_at', { ascending: false })
-    .limit(50)
+    .range(offset, offset + limit - 1)
   if (runsErr) {
     return NextResponse.json({ error: runsErr.message }, { status: 500 })
   }

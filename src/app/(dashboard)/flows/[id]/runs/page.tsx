@@ -143,7 +143,7 @@ export default function FlowRunsPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/flows/${params.id}/runs`);
+        const res = await fetch(`/api/flows/${params.id}/runs?limit=1000`);
         if (res.status === 404) {
           if (!cancelled) setNotFound(true);
           return;
