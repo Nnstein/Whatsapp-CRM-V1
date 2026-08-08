@@ -430,6 +430,11 @@ export function SettingsOverview({
       loading: false,
       subtitle: 'Manage account API keys for external integrations',
     },
+    {
+      section: 'stores',
+      loading: false,
+      subtitle: 'Connect e-commerce stores (Zid, Shopify, …)',
+    },
   ];
 
   const tiles = rawTiles.filter((t) =>

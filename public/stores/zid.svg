@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40" fill="none">
+  <!-- Zid wordmark placeholder — replace with official Zid SVG from brand assets -->
+  <rect width="120" height="40" rx="6" fill="#1A1A2E"/>
+  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
+        font-family="system-ui, sans-serif" font-size="18" font-weight="700" fill="#FFFFFF">
+    Zid
+  </text>
+</svg>
