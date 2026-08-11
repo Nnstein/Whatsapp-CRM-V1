@@ -435,6 +435,11 @@ export function SettingsOverview({
       loading: false,
       subtitle: 'Connect e-commerce stores (Zid, Shopify, …)',
     },
+    {
+      section: 'catalog',
+      loading: false,
+      subtitle: 'In-WhatsApp Product Catalog & Payment Instructions',
+    },
   ];
 
   const tiles = rawTiles.filter((t) =>

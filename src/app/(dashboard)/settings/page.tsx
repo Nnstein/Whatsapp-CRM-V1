@@ -18,6 +18,7 @@ import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { StoreConnectors } from '@/components/settings/store-connectors';
+import { CatalogManager } from '@/components/settings/catalog-manager';
 import { canAccessSettingsSection } from '@/lib/auth/roles';
 import {
   resolveSection,
@@ -67,6 +68,7 @@ export default function SettingsPage() {
     members: <MembersTab />,
     api: <ApiKeysSettings />,
     stores: <StoreConnectors />,
+    catalog: <CatalogManager />,
   };
 
   return (

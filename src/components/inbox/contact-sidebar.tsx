@@ -21,11 +21,14 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
 
+import { CartPanel } from "./cart-panel";
+
 interface ContactSidebarProps {
   contact: Contact | null;
+  conversationId?: string;
 }
 
-export function ContactSidebar({ contact }: ContactSidebarProps) {
+export function ContactSidebar({ contact, conversationId }: ContactSidebarProps) {
   const { accountId } = useAuth();
   const [copied, setCopied] = useState(false);
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -209,6 +212,12 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
               )}
             </div>
           </div>
+
+          {/* Divider */}
+          <div className="my-4 border-t border-border" />
+
+          {/* WhatsApp Cart */}
+          <CartPanel contactId={contact.id} conversationId={conversationId} />
 
           {/* Divider */}
           <div className="my-4 border-t border-border" />

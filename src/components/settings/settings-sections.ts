@@ -3,6 +3,7 @@ import {
   FileText,
   KeyRound,
   LayoutGrid,
+  Package,
   Palette,
   PlugZap,
   Shield,
@@ -35,6 +36,7 @@ export const SETTINGS_SECTIONS = [
   'members',
   'api',
   'stores',
+  'catalog',
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
@@ -62,6 +64,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace' },
   api: { id: 'api', label: 'API keys', icon: KeyRound, group: 'workspace' },
   stores: { id: 'stores', label: 'Store connectors', icon: ShoppingBag, group: 'workspace' },
+  catalog: { id: 'catalog', label: 'Product Catalog', icon: Package, group: 'workspace' },
 };
 
 export const RAIL_GROUPS: { label: string | null; group: SectionMeta['group'] }[] = [

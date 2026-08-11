@@ -87,10 +87,25 @@ export async function dispatchInboundToAiReply(
       latestUserMessage(messages),
     )
 
+    // Load active products for catalog awareness (best-effort).
+    let catalogProducts: Array<{ name: string; price: number; currency: string; description?: string | null }> | null = null
+    try {
+      const { data: prods } = await db
+        .from('catalog_products')
+        .select('name, price, currency, description, variants')
+        .eq('account_id', accountId)
+        .eq('is_active', true)
+        .limit(15)
+      catalogProducts = prods ?? null
+    } catch {
+      // Non-fatal catalog context query
+    }
+
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
       knowledge,
+      catalogProducts: catalogProducts ?? undefined,
     })
 
     const { text, handoff } = await generateReply({

@@ -130,8 +130,16 @@ export function buildSystemPrompt(args: {
   mode: 'draft' | 'auto_reply'
   /** Knowledge-base excerpts retrieved for the current question. */
   knowledge?: string[]
+  /** Product catalog items available for this account. */
+  catalogProducts?: Array<{
+    name: string
+    price: number
+    currency?: string
+    description?: string | null
+    variants?: any
+  }>
 }): string {
-  const { userPrompt, mode, knowledge } = args
+  const { userPrompt, mode, knowledge, catalogProducts } = args
   const parts: string[] = [
     'You are a customer-messaging assistant for a business that uses a WhatsApp CRM. ' +
       'You are shown the recent WhatsApp conversation between the business (assistant) and a customer (user). ' +
@@ -153,6 +161,24 @@ export function buildSystemPrompt(args: {
 
   if (userPrompt && userPrompt.trim()) {
     parts.push(`Business context and instructions:\n${userPrompt.trim()}`)
+  }
+
+  if (catalogProducts && catalogProducts.length > 0) {
+    const itemsText = catalogProducts
+      .map((p, i) => {
+        const curr = p.currency ?? 'SAR'
+        const vars = Array.isArray(p.variants) && p.variants.length > 0
+          ? ` [variants: ${p.variants.map((v: any) => v.label).filter(Boolean).join(', ')}]`
+          : ''
+        return `[${i + 1}] ${p.name} — ${curr} ${p.price}${vars}${p.description ? `: ${p.description}` : ''}`
+      })
+      .join('\n')
+    parts.push(
+      'Available Product Catalog:\n' +
+        'Use this catalog to answer questions about products, prices, and options. ' +
+        'If a customer asks to buy or add a product, confirm the item and price politely and suggest checking out when ready.\n\n' +
+        itemsText,
+    )
   }
 
   if (knowledge && knowledge.length > 0) {

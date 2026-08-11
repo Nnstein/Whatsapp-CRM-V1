@@ -7,6 +7,7 @@ import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import { dispatchCartIntent } from '@/lib/ai/cart-intent'
 import { dispatchContactEnrichment } from '@/lib/ai/extract-contact'
 import { detectLanguageFromText } from '@/lib/i18n/language-detector'
 import { loadAiConfig } from '@/lib/ai/config'
@@ -802,12 +803,27 @@ async function processMessage(
     }).catch((err) => console.error('[automations] dispatch failed:', err))
   }
 
+  // Cart intent dispatcher. Runs for all plain-text inbound messages
+  // (including those not consumed by a flow). Keyword-based, no LLM key
+  // required. Returns true when it handled the message, in which case
+  // we skip the LLM auto-reply to avoid double-texting the customer.
+  let cartHandled = false
+  if (!interactiveReplyId && inboundText.trim()) {
+    cartHandled = await dispatchCartIntent({
+      accountId,
+      contactId: contactRecord.id,
+      conversationId: conversation.id,
+      configOwnerUserId,
+      inboundText,
+    })
+  }
+
   // AI auto-reply. Runs only for plain-text inbound the deterministic
-  // flow runner did NOT consume (flows win over the LLM), and only when
-  // the account has enabled it. Awaited inside `after()` (same reason as
-  // the webhook dispatch below); `dispatchInboundToAiReply` owns its
+  // flow runner did NOT consume (flows win over the LLM), only when the
+  // cart intent layer didn't already handle it, and only when the
+  // account has enabled it. `dispatchInboundToAiReply` owns its
   // eligibility gates + try/catch and never throws.
-  if (!flowConsumed && !interactiveReplyId && inboundText.trim()) {
+  if (!flowConsumed && !interactiveReplyId && !cartHandled && inboundText.trim()) {
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,

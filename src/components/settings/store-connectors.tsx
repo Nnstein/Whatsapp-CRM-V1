@@ -466,6 +466,34 @@ function ConnectorForm({
                 {isSaved ? 'Update' : 'Save connection'}
               </Button>
 
+              {isSaved && connection && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => {
+                    setTesting(true);
+                    try {
+                      const res = await fetch(`/api/stores/${connection.id}/sync`, { method: 'POST' });
+                      const data = await res.json();
+                      if (res.ok) {
+                        toast.success(`Successfully synced ${data.synced_count} products from ${connector.label}!`);
+                      } else {
+                        toast.error(data.error || 'Catalog sync failed');
+                      }
+                    } catch {
+                      toast.error('Catalog sync failed');
+                    } finally {
+                      setTesting(false);
+                    }
+                  }}
+                  disabled={testing || saving}
+                >
+                  <ShoppingBag className="mr-1.5 size-3.5" />
+                  Sync Products
+                </Button>
+              )}
+
               {isSaved && (
                 <Button
                   type="button"
@@ -590,6 +618,39 @@ export function StoreConnectors() {
               />
             ))}
           </div>
+
+          {/* Universal Webhook Card for Custom / Any Store */}
+          <Card className="mt-6 border-dashed">
+            <CardHeader>
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <ShoppingBag className="size-4 text-primary" />
+                Universal Webhook (Custom Store / WooCommerce / Wix)
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Have a custom e-commerce store or platform without a built-in connector? Send order notifications directly to your CRM webhook endpoint.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <div>
+                <Label className="text-muted-foreground text-[11px]">Universal Webhook URL</Label>
+                <div className="mt-1 font-mono text-xs bg-muted p-2 rounded border overflow-x-auto select-all">
+                  {typeof window !== 'undefined' ? `${window.location.origin}/api/v1/webhooks/stores/generic` : '/api/v1/webhooks/stores/generic'}
+                </div>
+              </div>
+              <div>
+                <Label className="text-muted-foreground text-[11px]">Payload Format (JSON POST)</Label>
+                <pre className="mt-1 font-mono text-[11px] bg-muted p-2 rounded border text-muted-foreground overflow-x-auto">
+{`{
+  "order_id": "10042",
+  "customer_phone": "+966501234567",
+  "status": "paid",
+  "total": 199.00,
+  "currency": "SAR"
+}`}
+                </pre>
+              </div>
+            </CardContent>
+          </Card>
 
           {STORE_CONNECTORS.length === 0 && (
             <p className="text-sm text-muted-foreground">No connectors available yet.</p>

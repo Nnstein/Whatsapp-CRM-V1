@@ -53,10 +53,11 @@ export async function PATCH(request: Request) {
     if (!limit.success) return rateLimitResponse(limit);
 
     const body = (await request.json().catch(() => null)) as
-      | { name?: unknown; logo_url?: unknown }
+      | { name?: unknown; logo_url?: unknown; payment_instructions?: unknown }
       | null;
     const rawName = body?.name;
     const rawLogoUrl = body?.logo_url;
+    const rawPaymentInstructions = body?.payment_instructions;
 
     if (rawName !== undefined && typeof rawName !== "string") {
       return NextResponse.json(
@@ -70,9 +71,17 @@ export async function PATCH(request: Request) {
         { status: 400 },
       );
     }
+    if (rawPaymentInstructions !== undefined && rawPaymentInstructions !== null && typeof rawPaymentInstructions !== "string") {
+      return NextResponse.json(
+        { error: "'payment_instructions' must be a string or null" },
+        { status: 400 },
+      );
+    }
 
     const name = rawName?.trim() ?? "";
     const logoUrl = rawLogoUrl === undefined ? undefined : (rawLogoUrl as string | null);
+    const paymentInstructions = rawPaymentInstructions === undefined ? undefined : (rawPaymentInstructions as string | null);
+
     if (rawName !== undefined) {
       if (name.length === 0) {
         return NextResponse.json(
@@ -95,9 +104,9 @@ export async function PATCH(request: Request) {
       );
     }
 
-    if (rawName === undefined && logoUrl === undefined) {
+    if (rawName === undefined && logoUrl === undefined && paymentInstructions === undefined) {
       return NextResponse.json(
-        { error: "Provide 'name' and/or 'logo_url'" },
+        { error: "Provide 'name', 'logo_url', or 'payment_instructions'" },
         { status: 400 },
       );
     }
@@ -108,12 +117,13 @@ export async function PATCH(request: Request) {
     const update: Record<string, unknown> = {};
     if (rawName !== undefined) update.name = name;
     if (logoUrl !== undefined) update.logo_url = logoUrl;
+    if (paymentInstructions !== undefined) update.payment_instructions = paymentInstructions;
 
     const { data, error } = await ctx.supabase
       .from("accounts")
       .update(update)
       .eq("id", ctx.accountId)
-      .select("id, name, logo_url")
+      .select("id, name, logo_url, payment_instructions")
       .single();
 
     if (error) {
