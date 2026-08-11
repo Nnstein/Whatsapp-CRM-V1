@@ -529,7 +529,7 @@ function ConnectorForm({
 // ── Main panel ───────────────────────────────────────────────────
 
 export function StoreConnectors() {
-  const { accountRole } = useAuth();
+  const { accountRole, defaultCurrency } = useAuth();
   const canEdit = accountRole ? canEditSettings(accountRole) : false;
 
   const [loading, setLoading] = useState(true);
@@ -540,7 +540,14 @@ export function StoreConnectors() {
   const [testOrderId, setTestOrderId] = useState('10042');
   const [testStatus, setTestStatus] = useState('paid');
   const [testTotal, setTestTotal] = useState('199.00');
+  const [testCurrency, setTestCurrency] = useState(defaultCurrency || 'SAR');
   const [testResultJson, setTestResultJson] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (defaultCurrency) {
+      setTestCurrency(defaultCurrency);
+    }
+  }, [defaultCurrency]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -651,7 +658,7 @@ export function StoreConnectors() {
                   <span className="text-[10px] text-muted-foreground">Enter a customer's phone number to test cart auto-confirmation</span>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   <div>
                     <Label className="text-[10px] text-muted-foreground">Order ID</Label>
                     <Input
@@ -685,13 +692,23 @@ export function StoreConnectors() {
                     </select>
                   </div>
                   <div>
-                    <Label className="text-[10px] text-muted-foreground">Total (SAR)</Label>
+                    <Label className="text-[10px] text-muted-foreground">Total</Label>
                     <Input
                       size={1}
                       className="h-8 text-xs font-mono"
                       value={testTotal}
                       onChange={(e) => setTestTotal(e.target.value)}
                       placeholder="199.00"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">Currency</Label>
+                    <Input
+                      size={1}
+                      className="h-8 text-xs font-mono"
+                      value={testCurrency}
+                      onChange={(e) => setTestCurrency(e.target.value.toUpperCase())}
+                      placeholder={defaultCurrency || 'SAR'}
                     />
                   </div>
                 </div>
@@ -705,7 +722,7 @@ export function StoreConnectors() {
     customer_phone: testPhone || '+966501234567',
     status: testStatus,
     total: parseFloat(testTotal) || 0,
-    currency: 'SAR',
+    currency: testCurrency || defaultCurrency || 'SAR',
   },
   null,
   2
@@ -728,7 +745,7 @@ export function StoreConnectors() {
                           customer_phone: testPhone.trim() || '+966501234567',
                           status: testStatus,
                           total: parseFloat(testTotal) || 0,
-                          currency: 'SAR',
+                          currency: testCurrency.trim() || defaultCurrency || 'SAR',
                         };
 
                         const res = await fetch('/api/v1/webhooks/stores/generic', {

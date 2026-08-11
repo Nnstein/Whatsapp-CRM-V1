@@ -53,7 +53,7 @@ export interface CatalogProduct {
 }
 
 export function CatalogManager() {
-  const { canEditSettings } = useAuth();
+  const { canEditSettings, defaultCurrency } = useAuth();
 
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,7 +69,7 @@ export function CatalogManager() {
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
   const [formPrice, setFormPrice] = useState("");
-  const [formCurrency, setFormCurrency] = useState("SAR");
+  const [formCurrency, setFormCurrency] = useState(defaultCurrency || "SAR");
   const [formImageUrl, setFormImageUrl] = useState("");
   const [formTags, setFormTags] = useState("");
   const [formVariants, setFormVariants] = useState("");
@@ -307,7 +307,7 @@ export function CatalogManager() {
                         <div>
                           <h4 className="font-semibold text-sm text-foreground line-clamp-1">{p.name}</h4>
                           <p className="text-xs font-medium text-primary">
-                            {p.currency} {p.price.toFixed(2)}
+                            {p.currency || defaultCurrency} {p.price.toFixed(2)}
                           </p>
                         </div>
                       </div>

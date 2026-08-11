@@ -61,6 +61,17 @@ export async function POST(request: Request) {
     const price = typeof body.price === 'number' ? body.price : parseFloat(String(body.price ?? '0'));
     if (!Number.isFinite(price) || price < 0) return bad("'price' must be a non-negative number");
 
+    // Fetch account's default currency if not specified in request body
+    let currency = typeof body.currency === 'string' ? body.currency.trim().toUpperCase() : '';
+    if (!currency) {
+      const { data: acct } = await supabase
+        .from('accounts')
+        .select('default_currency')
+        .eq('id', accountId)
+        .maybeSingle();
+      currency = acct?.default_currency || 'SAR';
+    }
+
     const { data: product, error } = await supabase
       .from('catalog_products')
       .insert({
@@ -69,7 +80,7 @@ export async function POST(request: Request) {
         name,
         description: typeof body.description === 'string' ? body.description.trim() || null : null,
         price,
-        currency: typeof body.currency === 'string' ? body.currency.trim().toUpperCase() : 'SAR',
+        currency,
         image_url: typeof body.image_url === 'string' ? body.image_url.trim() || null : null,
         variants: Array.isArray(body.variants) ? body.variants : [],
         tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === 'string') : [],
