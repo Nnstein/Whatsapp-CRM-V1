@@ -39,16 +39,19 @@ export interface ZidCredentials {
 export async function testZidConnection(
   credentials: ZidCredentials,
 ): Promise<TestConnectionResult> {
-  const token = (credentials.access_token || credentials.auth_token || credentials.manager_token || '').trim();
+  const rawToken = (credentials.access_token || credentials.auth_token || credentials.manager_token || '').trim();
   const storeId = (credentials.store_id || '').trim();
 
-  if (!token) {
+  if (!rawToken) {
     return { ok: false, error: 'Access Token is required.' };
   }
 
+  const cleanToken = rawToken.replace(/^bearer\s+/i, '');
+  const bearerToken = `Bearer ${cleanToken}`;
+
   const headers: Record<string, string> = {
-    Authorization: token,
-    'X-Manager-Token': credentials.manager_token?.trim() || token,
+    Authorization: bearerToken,
+    'X-Manager-Token': cleanToken,
     'Content-Type': 'application/json',
     Accept: 'application/json',
   };
@@ -64,6 +67,19 @@ export async function testZidConnection(
       // Fail fast — the UI awaits this on every button click.
       signal: AbortSignal.timeout(10_000),
     });
+
+    // Fallback attempt: if 401, try raw token without Bearer prefix in Authorization
+    if (response.status === 401) {
+      const fallbackHeaders = { ...headers, Authorization: cleanToken };
+      const fallbackRes = await fetch(`${ZID_API_BASE}/managers/store/orders?page=1&per_page=1`, {
+        method: 'GET',
+        headers: fallbackHeaders,
+        signal: AbortSignal.timeout(10_000),
+      }).catch(() => null);
+      if (fallbackRes && fallbackRes.ok) {
+        response = fallbackRes;
+      }
+    }
   } catch (err) {
     const message =
       err instanceof Error && err.name === 'TimeoutError'

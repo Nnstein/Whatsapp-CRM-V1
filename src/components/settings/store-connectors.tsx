@@ -536,6 +536,11 @@ export function StoreConnectors() {
   const [connections, setConnections] = useState<ApiConnection[]>([]);
   const [activeConnector, setActiveConnector] = useState<StoreConnectorMeta | null>(null);
   const [sendingTestWebhook, setSendingTestWebhook] = useState(false);
+  const [testPhone, setTestPhone] = useState('+966501234567');
+  const [testOrderId, setTestOrderId] = useState('10042');
+  const [testStatus, setTestStatus] = useState('paid');
+  const [testTotal, setTestTotal] = useState('199.00');
+  const [testResultJson, setTestResultJson] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -638,66 +643,143 @@ export function StoreConnectors() {
                   {typeof window !== 'undefined' ? `${window.location.origin}/api/v1/webhooks/stores/generic` : '/api/v1/webhooks/stores/generic'}
                 </div>
               </div>
-              <div>
-                <Label className="text-muted-foreground text-[11px]">Payload Format (JSON POST)</Label>
-                <pre className="mt-1 font-mono text-[11px] bg-muted p-2 rounded border text-muted-foreground overflow-x-auto">
-{`{
-  "order_id": "10042",
-  "customer_phone": "+966501234567",
-  "status": "paid",
-  "total": 199.00,
-  "currency": "SAR"
-}`}
-                </pre>
-              </div>
 
-              <div className="pt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={sendingTestWebhook}
-                  onClick={async () => {
-                    setSendingTestWebhook(true);
-                    try {
-                      const testId = `TEST-${Math.floor(1000 + Math.random() * 9000)}`;
-                      const res = await fetch('/api/v1/webhooks/stores/generic', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          order_id: testId,
-                          customer_phone: '+966500000000',
-                          status: 'paid',
-                          total: 99.00,
+              {/* Interactive Test Form */}
+              <div className="pt-2 space-y-3 border-t border-border/50">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-foreground text-xs">Test Webhook Builder</span>
+                  <span className="text-[10px] text-muted-foreground">Enter a customer's phone number to test cart auto-confirmation</span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">Order ID</Label>
+                    <Input
+                      size={1}
+                      className="h-8 text-xs font-mono"
+                      value={testOrderId}
+                      onChange={(e) => setTestOrderId(e.target.value)}
+                      placeholder="10042"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">Customer Phone</Label>
+                    <Input
+                      size={1}
+                      className="h-8 text-xs font-mono"
+                      value={testPhone}
+                      onChange={(e) => setTestPhone(e.target.value)}
+                      placeholder="+966501234567"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">Status</Label>
+                    <select
+                      className="w-full h-8 rounded border border-border bg-muted px-2 text-xs outline-none"
+                      value={testStatus}
+                      onChange={(e) => setTestStatus(e.target.value)}
+                    >
+                      <option value="paid">paid</option>
+                      <option value="pending">pending</option>
+                      <option value="cancelled">cancelled</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">Total (SAR)</Label>
+                    <Input
+                      size={1}
+                      className="h-8 text-xs font-mono"
+                      value={testTotal}
+                      onChange={(e) => setTestTotal(e.target.value)}
+                      placeholder="199.00"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-muted-foreground text-[10px]">JSON Payload Preview</Label>
+                  <pre className="mt-1 font-mono text-[11px] bg-muted/80 p-2 rounded border text-foreground overflow-x-auto">
+{JSON.stringify(
+  {
+    order_id: testOrderId || '10042',
+    customer_phone: testPhone || '+966501234567',
+    status: testStatus,
+    total: parseFloat(testTotal) || 0,
+    currency: 'SAR',
+  },
+  null,
+  2
+)}
+                  </pre>
+                </div>
+
+                <div className="flex items-center gap-3 pt-1">
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    disabled={sendingTestWebhook}
+                    onClick={async () => {
+                      setSendingTestWebhook(true);
+                      setTestResultJson(null);
+                      try {
+                        const payload = {
+                          order_id: testOrderId.trim() || '10042',
+                          customer_phone: testPhone.trim() || '+966501234567',
+                          status: testStatus,
+                          total: parseFloat(testTotal) || 0,
                           currency: 'SAR',
-                        }),
-                      });
+                        };
 
-                      const data = await res.json();
-                      if (res.ok && data.received) {
-                        toast.success(
-                          data.processed
-                            ? `Test webhook verified! Order #${data.order_id}`
-                            : `Webhook operational! (${data.reason || 'Received successfully'})`
-                        );
-                      } else {
-                        toast.error(data.error || 'Test webhook failed');
+                        const res = await fetch('/api/v1/webhooks/stores/generic', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(payload),
+                        });
+
+                        const data = await res.json();
+                        setTestResultJson(JSON.stringify(data, null, 2));
+
+                        if (res.ok && data.received) {
+                          if (data.cart_confirmed) {
+                            toast.success(`✓ Success! Active cart auto-confirmed for order #${data.order_id}!`);
+                          } else if (data.processed) {
+                            toast.success(`Webhook received for order #${data.order_id}`);
+                          } else {
+                            toast.info(`Webhook received! (${data.reason || 'No cart matched'})`);
+                          }
+                        } else {
+                          toast.error(data.error || 'Test webhook failed');
+                        }
+                      } catch (err: any) {
+                        toast.error(err.message || 'Failed to send test webhook');
+                      } finally {
+                        setSendingTestWebhook(false);
                       }
-                    } catch {
-                      toast.error('Failed to dispatch test webhook');
-                    } finally {
-                      setSendingTestWebhook(false);
-                    }
-                  }}
-                  className="gap-1.5 text-xs"
-                >
-                  {sendingTestWebhook ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <Wifi className="size-3.5 text-primary" />
-                  )}
-                  Send Test Webhook
-                </Button>
+                    }}
+                    className="gap-1.5 text-xs bg-primary text-primary-foreground hover:bg-primary/90"
+                  >
+                    {sendingTestWebhook ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Wifi className="size-3.5" />
+                    )}
+                    Send Test Webhook
+                  </Button>
+                </div>
+
+                {/* Server Response Inspector */}
+                {testResultJson && (
+                  <div className="mt-3 p-3 rounded-lg border bg-card space-y-1 animate-in fade-in-50">
+                    <p className="text-[11px] font-semibold text-foreground flex items-center justify-between">
+                      <span>Server Response Output:</span>
+                      <span className="text-[10px] text-muted-foreground font-mono">HTTP 200 OK</span>
+                    </p>
+                    <pre className="font-mono text-[11px] bg-muted p-2 rounded text-emerald-600 dark:text-emerald-400 overflow-x-auto">
+                      {testResultJson}
+                    </pre>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

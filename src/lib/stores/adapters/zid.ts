@@ -16,11 +16,13 @@ export const zidAdapter: UniversalStoreAdapter = {
   async fetchProducts(credentials: Record<string, unknown>): Promise<NormalizedProduct[]> {
     const jsonStr = typeof credentials === 'string' ? credentials : JSON.stringify(credentials);
     const parsedCreds = parseZidCredentials(jsonStr);
-    const token = (parsedCreds.access_token || parsedCreds.auth_token || parsedCreds.manager_token || '').trim();
+    const rawToken = (parsedCreds.access_token || parsedCreds.auth_token || parsedCreds.manager_token || '').trim();
+    const cleanToken = rawToken.replace(/^bearer\s+/i, '');
+    const bearerToken = `Bearer ${cleanToken}`;
 
     const headers: Record<string, string> = {
-      Authorization: token,
-      'X-Manager-Token': parsedCreds.manager_token?.trim() || token,
+      Authorization: bearerToken,
+      'X-Manager-Token': cleanToken,
       'Content-Type': 'application/json',
       Accept: 'application/json',
     };
@@ -28,11 +30,20 @@ export const zidAdapter: UniversalStoreAdapter = {
       headers['Store-Id'] = parsedCreds.store_id.trim();
     }
 
-    const response = await fetch(`${ZID_API_BASE}/managers/store/products?page=1&per_page=50`, {
+    let response = await fetch(`${ZID_API_BASE}/managers/store/products?page=1&per_page=50`, {
       method: 'GET',
       headers,
       signal: AbortSignal.timeout(15_000),
     });
+
+    if (response.status === 401) {
+      const fallbackRes = await fetch(`${ZID_API_BASE}/managers/store/products?page=1&per_page=50`, {
+        method: 'GET',
+        headers: { ...headers, Authorization: cleanToken },
+        signal: AbortSignal.timeout(15_000),
+      }).catch(() => null);
+      if (fallbackRes && fallbackRes.ok) response = fallbackRes;
+    }
 
     if (!response.ok) {
       throw new Error(`Zid API error (HTTP ${response.status}) when fetching products.`);
