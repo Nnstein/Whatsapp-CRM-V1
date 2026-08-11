@@ -18,7 +18,10 @@ import {
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
+  UploadCloud,
+  X,
 } from "lucide-react";
+import { uploadAccountMedia } from "@/lib/storage/upload-media";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -91,8 +94,9 @@ export function CatalogManager() {
   const [formDesc, setFormDesc] = useState("");
   const [formPrice, setFormPrice] = useState("");
   const [formQuantity, setFormQuantity] = useState("Infinite");
-  const [formCurrency, setFormCurrency] = useState(defaultCurrency || "SAR");
-  const [formImageUrl, setFormImageUrl] = useState("");
+  const [formImages, setFormImages] = useState<string[]>([]);
+  const [newImageUrl, setNewImageUrl] = useState("");
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [formTags, setFormTags] = useState("");
   const [formVariants, setFormVariants] = useState("");
 
@@ -179,8 +183,8 @@ export function CatalogManager() {
     setFormDesc("");
     setFormPrice("");
     setFormQuantity("Infinite");
-    setFormCurrency(defaultCurrency || "SAR");
-    setFormImageUrl("");
+    setFormImages([]);
+    setNewImageUrl("");
     setFormTags("");
     setFormVariants("");
     setModalOpen(true);
@@ -193,13 +197,68 @@ export function CatalogManager() {
     setFormDesc(p.description || "");
     setFormPrice(String(p.price));
     setFormQuantity(p.quantity || "Infinite");
-    setFormCurrency(p.currency || defaultCurrency || "SAR");
-    setFormImageUrl(p.image_url || "");
+    setFormImages(p.images && p.images.length > 0 ? p.images : p.image_url ? [p.image_url] : []);
+    setNewImageUrl("");
     setFormTags((p.tags || []).join(", "));
     setFormVariants(
       (p.variants || []).map((v) => v.label).filter(Boolean).join(", ")
     );
     setModalOpen(true);
+  }
+
+  async function handleFileUpload(files: FileList | File[]) {
+    if (!files || files.length === 0) return;
+    setUploadingImage(true);
+
+    const uploadedUrls: string[] = [];
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith("image/")) {
+        toast.error(`${file.name} is not an image file`);
+        continue;
+      }
+      try {
+        const { publicUrl } = await uploadAccountMedia("chat-media", file);
+        uploadedUrls.push(publicUrl);
+      } catch {
+        // Fallback to FileReader Data URL
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        uploadedUrls.push(dataUrl);
+      }
+    }
+
+    if (uploadedUrls.length > 0) {
+      setFormImages((prev) => [...prev, ...uploadedUrls]);
+      toast.success(`Added ${uploadedUrls.length} image(s)`);
+    }
+    setUploadingImage(false);
+  }
+
+  function handleAddImageUrl() {
+    if (!newImageUrl.trim()) return;
+    const url = newImageUrl.trim();
+    if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("data:")) {
+      toast.error("Valid image URL required");
+      return;
+    }
+    setFormImages((prev) => [...prev, url]);
+    setNewImageUrl("");
+  }
+
+  function handleRemoveImage(index: number) {
+    setFormImages((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function handleSetCoverImage(index: number) {
+    if (index === 0) return;
+    setFormImages((prev) => {
+      const copy = [...prev];
+      const [target] = copy.splice(index, 1);
+      return [target, ...copy];
+    });
   }
 
   async function handleSaveProduct() {
@@ -230,8 +289,9 @@ export function CatalogManager() {
       description: formDesc.trim() || null,
       price: priceNum,
       quantity: formQuantity.trim() || "Infinite",
-      currency: formCurrency.trim().toUpperCase(),
-      image_url: formImageUrl.trim() || null,
+      currency: activeCurrency,
+      image_url: formImages[0] || null,
+      images: formImages,
       tags: parsedTags,
       variants: parsedVariants,
     };
@@ -851,9 +911,9 @@ export function CatalogManager() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Price *</Label>
+                <Label>Price ({activeCurrency}) *</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -861,14 +921,6 @@ export function CatalogManager() {
                   value={formPrice}
                   onChange={(e) => setFormPrice(e.target.value)}
                   placeholder="99.00"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Currency</Label>
-                <Input
-                  value={formCurrency}
-                  onChange={(e) => setFormCurrency(e.target.value)}
-                  placeholder="SAR"
                 />
               </div>
               <div className="space-y-1.5">
@@ -891,13 +943,91 @@ export function CatalogManager() {
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Image URL (Optional)</Label>
-              <Input
-                value={formImageUrl}
-                onChange={(e) => setFormImageUrl(e.target.value)}
-                placeholder="https://example.com/image.jpg"
-              />
+            {/* Product Images Drag & Drop + Gallery */}
+            <div className="space-y-2">
+              <Label className="flex items-center justify-between text-xs">
+                <span>Product Images ({formImages.length})</span>
+                <span className="text-[10px] text-muted-foreground">Click thumbnail to set Cover image</span>
+              </Label>
+
+              {/* Drag & Drop Zone */}
+              <label className="border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors text-center relative">
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
+                  disabled={uploadingImage}
+                />
+                {uploadingImage ? (
+                  <div className="flex items-center gap-2 py-2">
+                    <Loader2 className="size-5 animate-spin text-primary" />
+                    <span className="text-xs font-medium">Uploading images...</span>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <UploadCloud className="size-6 text-muted-foreground mx-auto" />
+                    <p className="text-xs font-medium text-foreground">
+                      Drag & drop images here, or <span className="text-primary underline">browse</span>
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">Supports multiple files (PNG, JPG, WEBP)</p>
+                  </div>
+                )}
+              </label>
+
+              {/* Or Paste Direct Image URL */}
+              <div className="flex items-center gap-1.5 pt-1">
+                <Input
+                  value={newImageUrl}
+                  onChange={(e) => setNewImageUrl(e.target.value)}
+                  placeholder="Or paste image URL (https://...)"
+                  className="text-xs h-8"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddImageUrl();
+                    }
+                  }}
+                />
+                <Button type="button" variant="outline" size="sm" onClick={handleAddImageUrl} className="h-8 text-xs">
+                  Add URL
+                </Button>
+              </div>
+
+              {/* Image Gallery Grid */}
+              {formImages.length > 0 && (
+                <div className="grid grid-cols-4 gap-2 pt-2">
+                  {formImages.map((url, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => handleSetCoverImage(idx)}
+                      className={`relative group rounded-md overflow-hidden border aspect-square cursor-pointer transition-all ${
+                        idx === 0 ? 'ring-2 ring-primary border-transparent' : 'hover:border-primary'
+                      }`}
+                      title={idx === 0 ? 'Cover image' : 'Click to make Cover image'}
+                    >
+                      <img src={url} alt={`Product image ${idx + 1}`} className="w-full h-full object-cover" />
+                      {idx === 0 && (
+                        <span className="absolute top-1 left-1 bg-emerald-600 text-white text-[9px] px-1 py-0.5 rounded font-medium shadow">
+                          Cover
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveImage(idx);
+                        }}
+                        className="absolute top-1 right-1 bg-black/70 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive"
+                        title="Remove image"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="space-y-1.5">
