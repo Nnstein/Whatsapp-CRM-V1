@@ -1,5 +1,5 @@
 -- ============================================================
--- 038_member_titles_inbox_groups.sql — Member titles + inbox groups
+-- 039_member_titles_inbox_groups.sql — Member titles + inbox groups
 --
 -- Two related "organise your team / inboxes" features:
 --

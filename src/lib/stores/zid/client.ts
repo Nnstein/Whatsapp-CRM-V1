@@ -23,8 +23,10 @@ import type { TestConnectionResult } from '../types';
 const ZID_API_BASE = 'https://api.zid.sa/v1';
 
 export interface ZidCredentials {
-  auth_token: string;
-  manager_token: string;
+  store_id?: string;
+  access_token?: string;
+  auth_token?: string;
+  manager_token?: string;
 }
 
 /**
@@ -33,30 +35,32 @@ export interface ZidCredentials {
  * A 200 response (even an empty orders list) means the credentials
  * are valid and the store is reachable. Any non-2xx, network error,
  * or malformed response is treated as failure.
- *
- * We use `GET /managers/store/orders?page=1&per_page=1` because it
- * is the lightest authenticated endpoint: it costs one small JSON
- * payload and does not mutate any store data.
  */
 export async function testZidConnection(
   credentials: ZidCredentials,
 ): Promise<TestConnectionResult> {
-  const { auth_token, manager_token } = credentials;
+  const token = (credentials.access_token || credentials.auth_token || credentials.manager_token || '').trim();
+  const storeId = (credentials.store_id || '').trim();
 
-  if (!auth_token?.trim() || !manager_token?.trim()) {
-    return { ok: false, error: 'Both Authorization Token and Manager Token are required.' };
+  if (!token) {
+    return { ok: false, error: 'Access Token is required.' };
+  }
+
+  const headers: Record<string, string> = {
+    Authorization: token,
+    'X-Manager-Token': credentials.manager_token?.trim() || token,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+  if (storeId) {
+    headers['Store-Id'] = storeId;
   }
 
   let response: Response;
   try {
     response = await fetch(`${ZID_API_BASE}/managers/store/orders?page=1&per_page=1`, {
       method: 'GET',
-      headers: {
-        Authorization: auth_token.trim(),
-        'X-Manager-Token': manager_token.trim(),
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
+      headers,
       // Fail fast — the UI awaits this on every button click.
       signal: AbortSignal.timeout(10_000),
     });
@@ -86,9 +90,9 @@ export async function testZidConnection(
 
   // Non-2xx — map common status codes to helpful messages.
   const statusMessages: Record<number, string> = {
-    401: 'Unauthorized — check your Authorization Token.',
-    403: 'Forbidden — check your Manager Token or store permissions.',
-    404: 'Store not found — verify your Manager Token is for an active store.',
+    401: 'Unauthorized — check your Access Token.',
+    403: 'Forbidden — check your Store ID or store permissions.',
+    404: 'Store not found — verify your Store ID.',
     429: 'Rate limited by Zid — wait a moment and try again.',
   };
 
@@ -106,15 +110,29 @@ export function serializeZidCredentials(credentials: ZidCredentials): string {
 
 /**
  * Parse the decrypted JSON string back into `ZidCredentials`.
- * Throws if the payload is missing required fields.
+ * Accepts store_id + access_token, or legacy auth_token + manager_token.
  */
 export function parseZidCredentials(decrypted: string): ZidCredentials {
-  const parsed = JSON.parse(decrypted) as Record<string, unknown>;
-  if (typeof parsed.auth_token !== 'string' || typeof parsed.manager_token !== 'string') {
-    throw new Error('Invalid Zid credentials payload — missing auth_token or manager_token.');
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = JSON.parse(decrypted) as Record<string, unknown>;
+  } catch {
+    // fallback if unparsed
   }
+
+  const token = String(
+    parsed.access_token || parsed.accessToken || parsed.auth_token || parsed.manager_token || ''
+  ).trim();
+  const storeId = String(parsed.store_id || parsed.storeId || '').trim();
+
+  if (!token) {
+    throw new Error('Invalid Zid credentials payload — missing access_token.');
+  }
+
   return {
-    auth_token: parsed.auth_token,
-    manager_token: parsed.manager_token,
+    store_id: storeId || undefined,
+    access_token: token,
+    auth_token: String(parsed.auth_token || token).trim(),
+    manager_token: String(parsed.manager_token || token).trim(),
   };
 }

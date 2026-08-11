@@ -79,8 +79,10 @@ export async function POST(request: Request) {
 
     if (connector_type === 'zid') {
       result = await testZidConnection({
-        auth_token: String(creds.auth_token ?? '').trim(),
-        manager_token: String(creds.manager_token ?? '').trim(),
+        store_id: String(creds.store_id ?? creds.storeId ?? '').trim(),
+        access_token: String(creds.access_token ?? creds.accessToken ?? creds.auth_token ?? creds.manager_token ?? '').trim(),
+        auth_token: String(creds.auth_token ?? creds.access_token ?? '').trim(),
+        manager_token: String(creds.manager_token ?? creds.access_token ?? '').trim(),
       });
     } else {
       // Future connectors: add their test dispatch here.

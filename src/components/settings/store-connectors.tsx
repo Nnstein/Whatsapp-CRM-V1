@@ -535,6 +535,7 @@ export function StoreConnectors() {
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<ApiConnection[]>([]);
   const [activeConnector, setActiveConnector] = useState<StoreConnectorMeta | null>(null);
+  const [sendingTestWebhook, setSendingTestWebhook] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -648,6 +649,55 @@ export function StoreConnectors() {
   "currency": "SAR"
 }`}
                 </pre>
+              </div>
+
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={sendingTestWebhook}
+                  onClick={async () => {
+                    setSendingTestWebhook(true);
+                    try {
+                      const testId = `TEST-${Math.floor(1000 + Math.random() * 9000)}`;
+                      const res = await fetch('/api/v1/webhooks/stores/generic', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          order_id: testId,
+                          customer_phone: '+966500000000',
+                          status: 'paid',
+                          total: 99.00,
+                          currency: 'SAR',
+                        }),
+                      });
+
+                      const data = await res.json();
+                      if (res.ok && data.received) {
+                        toast.success(
+                          data.processed
+                            ? `Test webhook verified! Order #${data.order_id}`
+                            : `Webhook operational! (${data.reason || 'Received successfully'})`
+                        );
+                      } else {
+                        toast.error(data.error || 'Test webhook failed');
+                      }
+                    } catch {
+                      toast.error('Failed to dispatch test webhook');
+                    } finally {
+                      setSendingTestWebhook(false);
+                    }
+                  }}
+                  className="gap-1.5 text-xs"
+                >
+                  {sendingTestWebhook ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Wifi className="size-3.5 text-primary" />
+                  )}
+                  Send Test Webhook
+                </Button>
               </div>
             </CardContent>
           </Card>

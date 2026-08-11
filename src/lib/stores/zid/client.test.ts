@@ -5,7 +5,7 @@ import {
   parseZidCredentials,
 } from './client';
 
-const VALID_CREDS = { auth_token: 'tok_auth', manager_token: 'tok_mgr' };
+const VALID_CREDS = { store_id: '10042', access_token: 'tok_access' };
 
 // ── testZidConnection ────────────────────────────────────────────
 
@@ -72,7 +72,7 @@ describe('testZidConnection', () => {
   });
 
   it('returns ok:false when credentials are empty', async () => {
-    const result = await testZidConnection({ auth_token: '', manager_token: '' });
+    const result = await testZidConnection({ store_id: '', access_token: '' });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/required/i);
   });
@@ -83,13 +83,22 @@ describe('testZidConnection', () => {
 describe('serializeZidCredentials', () => {
   it('round-trips through parse', () => {
     const serialized = serializeZidCredentials(VALID_CREDS);
-    expect(parseZidCredentials(serialized)).toEqual(VALID_CREDS);
+    const parsed = parseZidCredentials(serialized);
+    expect(parsed.access_token).toBe('tok_access');
+    expect(parsed.store_id).toBe('10042');
   });
 });
 
 describe('parseZidCredentials', () => {
+  it('parses legacy auth_token and manager_token', () => {
+    const legacy = JSON.stringify({ auth_token: 'auth', manager_token: 'mgr' });
+    const parsed = parseZidCredentials(legacy);
+    expect(parsed.access_token).toBe('auth');
+    expect(parsed.auth_token).toBe('auth');
+    expect(parsed.manager_token).toBe('mgr');
+  });
+
   it('throws on missing fields', () => {
-    expect(() => parseZidCredentials(JSON.stringify({ auth_token: 'x' }))).toThrow();
     expect(() => parseZidCredentials(JSON.stringify({}))).toThrow();
   });
 });

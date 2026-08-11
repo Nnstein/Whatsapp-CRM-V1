@@ -20,23 +20,21 @@ export const STORE_CONNECTORS: StoreConnectorMeta[] = [
     docsUrl: 'https://developers.zid.sa/',
     fields: [
       {
-        key: 'auth_token',
-        label: 'Authorization Token',
-        type: 'password',
-        placeholder: 'Paste your Zid Authorization token…',
+        key: 'store_id',
+        label: 'Store ID',
+        type: 'text',
+        placeholder: 'e.g. 10042',
         helpText:
-          'Found in your Zid partner dashboard under App → Credentials. ' +
-          'Used as the Authorization header on every API request.',
+          'Your Zid Store ID. Found in your Zid merchant dashboard under API Integrations.',
         required: true,
       },
       {
-        key: 'manager_token',
-        label: 'Manager Token (X-Manager-Token)',
+        key: 'access_token',
+        label: 'Access Token',
         type: 'password',
-        placeholder: 'Paste your Zid Manager token…',
+        placeholder: 'Paste your Zid Access Token…',
         helpText:
-          'The per-store access token. Found alongside the Authorization ' +
-          'token in your Zid dashboard.',
+          'Your Zid Access Token. Found in your Zid merchant dashboard under API Integrations.',
         required: true,
       },
     ],

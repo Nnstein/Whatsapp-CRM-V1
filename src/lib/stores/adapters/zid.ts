@@ -15,16 +15,22 @@ export const zidAdapter: UniversalStoreAdapter = {
 
   async fetchProducts(credentials: Record<string, unknown>): Promise<NormalizedProduct[]> {
     const jsonStr = typeof credentials === 'string' ? credentials : JSON.stringify(credentials);
-    const { auth_token, manager_token } = parseZidCredentials(jsonStr);
+    const parsedCreds = parseZidCredentials(jsonStr);
+    const token = (parsedCreds.access_token || parsedCreds.auth_token || parsedCreds.manager_token || '').trim();
+
+    const headers: Record<string, string> = {
+      Authorization: token,
+      'X-Manager-Token': parsedCreds.manager_token?.trim() || token,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+    if (parsedCreds.store_id) {
+      headers['Store-Id'] = parsedCreds.store_id.trim();
+    }
 
     const response = await fetch(`${ZID_API_BASE}/managers/store/products?page=1&per_page=50`, {
       method: 'GET',
-      headers: {
-        Authorization: auth_token.trim(),
-        'X-Manager-Token': manager_token.trim(),
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
+      headers,
       signal: AbortSignal.timeout(15_000),
     });
 
