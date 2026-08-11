@@ -105,7 +105,7 @@ export async function DELETE(
 
     const { error } = await supabase
       .from('catalog_products')
-      .update({ is_active: false })
+      .delete()
       .eq('id', id)
       .eq('account_id', accountId);
 

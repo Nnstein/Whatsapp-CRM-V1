@@ -12,6 +12,12 @@ import {
   CheckCircle2,
   Image as ImageIcon,
   Tag,
+  LayoutGrid,
+  List,
+  Search,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -71,6 +77,14 @@ export function CatalogManager() {
   const [editingProduct, setEditingProduct] = useState<CatalogProduct | null>(null);
   const [savingProduct, setSavingProduct] = useState(false);
 
+  // View, search, sort & pagination state
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'hidden'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOption, setSortOption] = useState<'created-desc' | 'name-asc' | 'name-desc' | 'price-asc' | 'price-desc' | 'qty-desc'>('created-desc');
+  const [pageSize, setPageSize] = useState(12);
+  const [currentPage, setCurrentPage] = useState(1);
+
   // Form fields
   const [formSku, setFormSku] = useState("");
   const [formName, setFormName] = useState("");
@@ -81,6 +95,51 @@ export function CatalogManager() {
   const [formImageUrl, setFormImageUrl] = useState("");
   const [formTags, setFormTags] = useState("");
   const [formVariants, setFormVariants] = useState("");
+
+  const activeCurrency = defaultCurrency || "SAR";
+
+  const activeCount = products.filter((p) => p.is_active).length;
+  const hiddenCount = products.filter((p) => !p.is_active).length;
+
+  const filteredProducts = products.filter((p) => {
+    if (statusFilter === 'active' && !p.is_active) return false;
+    if (statusFilter === 'hidden' && p.is_active) return false;
+
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (
+      p.name.toLowerCase().includes(q) ||
+      (p.sku && p.sku.toLowerCase().includes(q)) ||
+      (p.description && p.description.toLowerCase().includes(q)) ||
+      (p.tags && p.tags.some((t) => t.toLowerCase().includes(q))) ||
+      (p.categories && p.categories.some((c) => c.toLowerCase().includes(q)))
+    );
+  });
+
+  const sortedProducts = [...filteredProducts].sort((a, b) => {
+    switch (sortOption) {
+      case 'name-asc':
+        return a.name.localeCompare(b.name);
+      case 'name-desc':
+        return b.name.localeCompare(a.name);
+      case 'price-asc':
+        return a.price - b.price;
+      case 'price-desc':
+        return b.price - a.price;
+      case 'qty-desc': {
+        const qA = a.quantity === 'Infinite' ? 999999 : parseInt(a.quantity || '0', 10) || 0;
+        const qB = b.quantity === 'Infinite' ? 999999 : parseInt(b.quantity || '0', 10) || 0;
+        return qB - qA;
+      }
+      case 'created-desc':
+      default:
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    }
+  });
+
+  const totalPages = Math.max(1, Math.ceil(sortedProducts.length / pageSize));
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedProducts = sortedProducts.slice(startIndex, startIndex + pageSize);
 
   useEffect(() => {
     fetchProducts();
@@ -330,7 +389,130 @@ export function CatalogManager() {
             )}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* Toolbar: Search, Sort, Page Size & View Mode Toggle */}
+          {products.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pb-2 border-b">
+              <div className="flex items-center gap-2 flex-1 max-w-md">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by name, SKU, or tag..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="pl-8 h-8 text-xs"
+                  />
+                </div>
+
+                <div className="flex items-center border rounded-md p-0.5 bg-muted/40 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter('all');
+                      setCurrentPage(1);
+                    }}
+                    className={`px-2 py-1 rounded-sm text-[11px] font-medium transition-colors ${
+                      statusFilter === 'all'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    All ({products.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter('active');
+                      setCurrentPage(1);
+                    }}
+                    className={`px-2 py-1 rounded-sm text-[11px] font-medium transition-colors ${
+                      statusFilter === 'active'
+                        ? 'bg-background text-emerald-600 dark:text-emerald-400 shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Active ({activeCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter('hidden');
+                      setCurrentPage(1);
+                    }}
+                    className={`px-2 py-1 rounded-sm text-[11px] font-medium transition-colors ${
+                      statusFilter === 'hidden'
+                        ? 'bg-background text-amber-600 dark:text-amber-400 shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Hidden ({hiddenCount})
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1">
+                  <ArrowUpDown className="size-3.5 text-muted-foreground" />
+                  <select
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs outline-none"
+                    value={sortOption}
+                    onChange={(e) => {
+                      setSortOption(e.target.value as any);
+                      setCurrentPage(1);
+                    }}
+                  >
+                    <option value="created-desc">Newest First</option>
+                    <option value="name-asc">Name: A to Z</option>
+                    <option value="name-desc">Name: Z to A</option>
+                    <option value="price-asc">Price: Low to High</option>
+                    <option value="price-desc">Price: High to Low</option>
+                    <option value="qty-desc">Highest Stock</option>
+                  </select>
+                </div>
+
+                <select
+                  className="h-8 rounded-md border border-input bg-background px-2 text-xs outline-none"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value={8}>8 / page</option>
+                  <option value={12}>12 / page</option>
+                  <option value={24}>24 / page</option>
+                  <option value={50}>50 / page</option>
+                </select>
+
+                <div className="flex items-center border rounded-md p-0.5 bg-muted/40">
+                  <Button
+                    type="button"
+                    variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    onClick={() => setViewMode('grid')}
+                    title="Tiles View"
+                  >
+                    <LayoutGrid className="size-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    onClick={() => setViewMode('list')}
+                    title="List View"
+                  >
+                    <List className="size-3.5" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <div className="flex justify-center p-8">
               <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -363,9 +545,101 @@ export function CatalogManager() {
                 </div>
               )}
             </div>
+          ) : sortedProducts.length === 0 ? (
+            <div className="text-center py-8 border border-dashed rounded-lg">
+              <p className="text-xs text-muted-foreground">No products matching "{searchQuery}"</p>
+            </div>
+          ) : viewMode === 'list' ? (
+            /* List View Table */
+            <div className="overflow-x-auto border rounded-lg">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-muted/50 text-muted-foreground font-medium border-b">
+                  <tr>
+                    <th className="p-2.5">Product</th>
+                    <th className="p-2.5">SKU</th>
+                    <th className="p-2.5">Stock</th>
+                    <th className="p-2.5">Price ({activeCurrency})</th>
+                    <th className="p-2.5">Status</th>
+                    {canEditSettings && <th className="p-2.5 text-right">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {paginatedProducts.map((p) => (
+                    <tr key={p.id} className={!p.is_active ? 'opacity-60 bg-muted/20' : ''}>
+                      <td className="p-2.5">
+                        <div className="flex items-center gap-2">
+                          {p.image_url ? (
+                            <img src={p.image_url} alt={p.name} className="size-8 rounded object-cover border" />
+                          ) : (
+                            <div className="size-8 rounded bg-muted flex items-center justify-center text-muted-foreground">
+                              <ImageIcon className="size-4" />
+                            </div>
+                          )}
+                          <div>
+                            <span className="font-semibold text-foreground line-clamp-1">{p.name}</span>
+                            {p.description && (
+                              <span className="text-[10px] text-muted-foreground line-clamp-1">{p.description}</span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-2.5 font-mono text-[11px] text-muted-foreground">{p.sku || '—'}</td>
+                      <td className="p-2.5">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                          p.quantity === '0' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'bg-muted text-muted-foreground'
+                        }`}>
+                          {p.quantity || 'Infinite'}
+                        </span>
+                      </td>
+                      <td className="p-2.5 font-medium text-primary">
+                        {activeCurrency} {p.price.toFixed(2)}
+                      </td>
+                      <td className="p-2.5">
+                        <span className={`px-2 py-0.5 text-[10px] font-medium rounded-full ${
+                          p.is_active ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground'
+                        }`}>
+                          {p.is_active ? 'Active' : 'Hidden'}
+                        </span>
+                      </td>
+                      {canEditSettings && (
+                        <td className="p-2.5 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-[11px] px-2 text-muted-foreground hover:text-foreground"
+                              onClick={() => handleToggleActive(p)}
+                            >
+                              {p.is_active ? 'Hide' : 'Activate'}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-[11px] px-2"
+                              onClick={() => openEditModal(p)}
+                            >
+                              <Edit2 className="size-3 mr-1" /> Edit
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10"
+                              onClick={() => handleDeleteProduct(p.id)}
+                            >
+                              <Trash2 className="size-3" />
+                            </Button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {products.map((p) => (
+            /* Tiles / Grid View */
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {paginatedProducts.map((p) => (
                 <div
                   key={p.id}
                   className={`p-4 rounded-lg border flex flex-col justify-between space-y-3 transition-colors ${
@@ -390,7 +664,7 @@ export function CatalogManager() {
                           <h4 className="font-semibold text-sm text-foreground line-clamp-1">{p.name}</h4>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-xs font-medium text-primary">
-                              {p.currency || defaultCurrency} {p.price.toFixed(2)}
+                              {activeCurrency} {p.price.toFixed(2)}
                             </span>
                             {p.sku && (
                               <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
@@ -456,7 +730,7 @@ export function CatalogManager() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-8 text-xs text-muted-foreground hover:text-foreground"
+                        className="h-8 text-xs"
                         onClick={() => openEditModal(p)}
                       >
                         <Edit2 className="size-3.5 mr-1" />
@@ -474,6 +748,38 @@ export function CatalogManager() {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Pagination Controls Footer */}
+          {sortedProducts.length > 0 && (
+            <div className="flex items-center justify-between pt-4 border-t text-xs text-muted-foreground">
+              <span>
+                Showing {startIndex + 1}–{Math.min(startIndex + pageSize, sortedProducts.length)} of {sortedProducts.length} products
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  className="h-7 px-2"
+                >
+                  <ChevronLeft className="size-3.5 mr-1" /> Prev
+                </Button>
+                <span className="px-2 font-mono">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                  className="h-7 px-2"
+                >
+                  Next <ChevronRight className="size-3.5 ml-1" />
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
