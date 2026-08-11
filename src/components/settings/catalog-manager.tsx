@@ -884,14 +884,14 @@ export function CatalogManager() {
 
       {/* Create / Edit Dialog */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
+          <DialogHeader className="p-6 pb-4 border-b">
             <DialogTitle>
               {editingProduct ? "Edit Product" : "Add New Product"}
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 p-6 overflow-y-auto max-h-[calc(90vh-130px)]">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Product Name *</Label>
@@ -936,7 +936,7 @@ export function CatalogManager() {
             <div className="space-y-1.5">
               <Label>Description</Label>
               <Textarea
-                rows={2}
+                rows={3}
                 value={formDesc}
                 onChange={(e) => setFormDesc(e.target.value)}
                 placeholder="Short description of the product"
@@ -1049,7 +1049,7 @@ export function CatalogManager() {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="p-4 border-t bg-muted/40 flex items-center justify-end gap-2">
             <Button variant="outline" onClick={() => setModalOpen(false)}>
               Cancel
             </Button>
