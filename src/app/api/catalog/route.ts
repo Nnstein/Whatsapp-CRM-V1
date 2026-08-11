@@ -18,7 +18,7 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from('catalog_products')
-      .select('id, name, description, price, currency, image_url, variants, tags, is_active, sort_order, created_at, updated_at')
+      .select('*')
       .eq('account_id', accountId)
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
@@ -39,7 +39,7 @@ export async function GET() {
  *
  * Create a new product. Admin+ only.
  *
- * Body: { name, description?, price, currency?, image_url?, variants?, tags?, is_active?, sort_order? }
+ * Body: { name, description?, price, sku?, quantity?, currency?, image_url?, variants?, tags?, is_active?, sort_order? }
  */
 export async function POST(request: Request) {
   try {
@@ -72,22 +72,28 @@ export async function POST(request: Request) {
       currency = acct?.default_currency || 'SAR';
     }
 
+    const sku = typeof body.sku === 'string' ? body.sku.trim() || null : null;
+    const quantity = typeof body.quantity === 'string' && body.quantity.trim() ? body.quantity.trim() : 'Infinite';
+
     const { data: product, error } = await supabase
       .from('catalog_products')
       .insert({
         account_id: accountId,
         created_by: userId,
+        sku,
         name,
         description: typeof body.description === 'string' ? body.description.trim() || null : null,
         price,
         currency,
+        quantity,
         image_url: typeof body.image_url === 'string' ? body.image_url.trim() || null : null,
+        images: Array.isArray(body.images) ? body.images : typeof body.image_url === 'string' && body.image_url.trim() ? [body.image_url.trim()] : [],
         variants: Array.isArray(body.variants) ? body.variants : [],
         tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === 'string') : [],
         is_active: body.is_active !== false,
         sort_order: typeof body.sort_order === 'number' ? Math.round(body.sort_order) : 0,
       })
-      .select('id, name, description, price, currency, image_url, variants, tags, is_active, sort_order, created_at, updated_at')
+      .select('*')
       .single();
 
     if (error || !product) {

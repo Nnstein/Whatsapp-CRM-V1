@@ -50,22 +50,34 @@ CREATE TABLE IF NOT EXISTS catalog_products (
   account_id   uuid        NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   created_by   uuid        REFERENCES auth.users(id) ON DELETE SET NULL,
 
+  sku          text,
   name         text        NOT NULL,
   description  text,
 
   price        numeric(12,2) NOT NULL DEFAULT 0,
+  sale_price   numeric(12,2),
+  cost         numeric(12,2),
   currency     text        NOT NULL DEFAULT 'SAR',
 
-  -- Public URL served to WhatsApp (Supabase Storage public bucket or
-  -- any external CDN). NULL = no image on the product card.
-  image_url    text,
+  -- Stock / Inventory count, e.g. 'Infinite', '0', '11'
+  quantity     text        NOT NULL DEFAULT 'Infinite',
 
-  -- JSON array of variant objects, e.g.
-  -- [{"label": "Small", "price_modifier": 0},
-  --  {"label": "Large", "price_modifier": 5}]
+  -- Category tags, e.g. ['Face', 'Makeup Essentials']
+  categories   text[]      NOT NULL DEFAULT '{}',
+
+  -- Public URL served to WhatsApp (Supabase Storage public bucket or external CDN)
+  image_url    text,
+  images       text[]      NOT NULL DEFAULT '{}',
+
+  weight       numeric     DEFAULT 0,
+  weight_unit  text        DEFAULT 'kg',
+
+  has_variants boolean     NOT NULL DEFAULT false,
+
+  -- JSON array of variant objects
   variants     jsonb       NOT NULL DEFAULT '[]'::jsonb,
 
-  -- Free-form tags for search / AI context, e.g. ["shoes","red","sale"]
+  -- Free-form tags for search / AI context
   tags         text[]      NOT NULL DEFAULT '{}',
 
   is_active    boolean     NOT NULL DEFAULT true,
@@ -76,6 +88,17 @@ CREATE TABLE IF NOT EXISTS catalog_products (
   created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz NOT NULL DEFAULT now()
 );
+
+-- Ensure columns exist for tables already created
+ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS sku text;
+ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS quantity text NOT NULL DEFAULT 'Infinite';
+ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS categories text[] NOT NULL DEFAULT '{}';
+ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS images text[] NOT NULL DEFAULT '{}';
+ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS weight numeric DEFAULT 0;
+ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS weight_unit text DEFAULT 'kg';
+ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS cost numeric(12,2);
+ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS sale_price numeric(12,2);
+ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS has_variants boolean NOT NULL DEFAULT false;
 
 ALTER TABLE catalog_products ENABLE ROW LEVEL SECURITY;
 

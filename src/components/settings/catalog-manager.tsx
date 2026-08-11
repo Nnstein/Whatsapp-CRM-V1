@@ -37,11 +37,15 @@ import { useAuth } from "@/hooks/use-auth";
 
 export interface CatalogProduct {
   id: string;
+  sku?: string | null;
   name: string;
   description: string | null;
   price: number;
   currency: string;
+  quantity?: string;
+  categories?: string[];
   image_url: string | null;
+  images?: string[];
   variants: Array<{ label: string; price_modifier?: number }>;
   tags: string[];
   is_active: boolean;
@@ -62,13 +66,17 @@ export function CatalogManager() {
 
   // Dialog state
   const [modalOpen, setModalOpen] = useState(false);
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadingCsv, setUploadingCsv] = useState(false);
   const [editingProduct, setEditingProduct] = useState<CatalogProduct | null>(null);
   const [savingProduct, setSavingProduct] = useState(false);
 
   // Form fields
+  const [formSku, setFormSku] = useState("");
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
   const [formPrice, setFormPrice] = useState("");
+  const [formQuantity, setFormQuantity] = useState("Infinite");
   const [formCurrency, setFormCurrency] = useState(defaultCurrency || "SAR");
   const [formImageUrl, setFormImageUrl] = useState("");
   const [formTags, setFormTags] = useState("");
@@ -107,10 +115,12 @@ export function CatalogManager() {
 
   function openCreateModal() {
     setEditingProduct(null);
+    setFormSku("");
     setFormName("");
     setFormDesc("");
     setFormPrice("");
-    setFormCurrency("SAR");
+    setFormQuantity("Infinite");
+    setFormCurrency(defaultCurrency || "SAR");
     setFormImageUrl("");
     setFormTags("");
     setFormVariants("");
@@ -119,10 +129,12 @@ export function CatalogManager() {
 
   function openEditModal(p: CatalogProduct) {
     setEditingProduct(p);
+    setFormSku(p.sku || "");
     setFormName(p.name);
     setFormDesc(p.description || "");
     setFormPrice(String(p.price));
-    setFormCurrency(p.currency || "SAR");
+    setFormQuantity(p.quantity || "Infinite");
+    setFormCurrency(p.currency || defaultCurrency || "SAR");
     setFormImageUrl(p.image_url || "");
     setFormTags((p.tags || []).join(", "));
     setFormVariants(
@@ -154,9 +166,11 @@ export function CatalogManager() {
       .map((label) => ({ label }));
 
     const payload = {
+      sku: formSku.trim() || null,
       name: formName.trim(),
       description: formDesc.trim() || null,
       price: priceNum,
+      quantity: formQuantity.trim() || "Infinite",
       currency: formCurrency.trim().toUpperCase(),
       image_url: formImageUrl.trim() || null,
       tags: parsedTags,
@@ -184,6 +198,36 @@ export function CatalogManager() {
       toast.error(err.message || "Failed to save product");
     } finally {
       setSavingProduct(false);
+    }
+  }
+
+  async function handleImportCsv(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingCsv(true);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("/api/catalog/import", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to import CSV");
+      }
+
+      toast.success(`Successfully imported ${data.imported_count ?? 0} products!`);
+      setUploadModalOpen(false);
+      fetchProducts();
+    } catch (err: any) {
+      toast.error(err.message || "CSV upload failed");
+    } finally {
+      setUploadingCsv(false);
+      e.target.value = "";
     }
   }
 
@@ -255,12 +299,36 @@ export function CatalogManager() {
               Products are used by the WhatsApp cart bot and AI assistant to answer customer inquiries and create orders.
             </CardDescription>
           </div>
-          {canEditSettings && (
-            <Button onClick={openCreateModal} size="sm" className="gap-1.5">
-              <Plus className="size-4" />
-              Add Product
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open("/api/catalog/export", "_blank")}
+              className="gap-1.5 text-xs"
+            >
+              Export CSV
             </Button>
-          )}
+            {canEditSettings && (
+              <>
+                <label className="cursor-pointer">
+                  <span className="inline-flex items-center justify-center gap-1.5 text-xs font-medium h-8 px-3 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground">
+                    Upload CSV
+                  </span>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={handleImportCsv}
+                    disabled={uploadingCsv}
+                  />
+                </label>
+                <Button onClick={openCreateModal} size="sm" className="gap-1.5">
+                  <Plus className="size-4" />
+                  Add Product
+                </Button>
+              </>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -268,17 +336,31 @@ export function CatalogManager() {
               <Loader2 className="size-6 animate-spin text-muted-foreground" />
             </div>
           ) : products.length === 0 ? (
-            <div className="text-center py-12 border border-dashed rounded-lg">
-              <Package className="size-10 text-muted-foreground/50 mx-auto mb-3" />
+            <div className="text-center py-12 border border-dashed rounded-lg space-y-3">
+              <Package className="size-10 text-muted-foreground/50 mx-auto" />
               <p className="text-sm font-medium text-foreground">No products added yet</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Add products so your WhatsApp customers can browse, select, and checkout.
+              <p className="text-xs text-muted-foreground">
+                Add products manually or upload a Zid-compatible CSV file.
               </p>
               {canEditSettings && (
-                <Button onClick={openCreateModal} variant="outline" size="sm" className="mt-4 gap-1.5">
-                  <Plus className="size-4" />
-                  Add First Product
-                </Button>
+                <div className="flex items-center justify-center gap-2 pt-2">
+                  <label className="cursor-pointer">
+                    <span className="inline-flex items-center justify-center gap-1.5 text-xs font-medium h-8 px-3 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground">
+                      Upload CSV
+                    </span>
+                    <input
+                      type="file"
+                      accept=".csv"
+                      className="hidden"
+                      onChange={handleImportCsv}
+                      disabled={uploadingCsv}
+                    />
+                  </label>
+                  <Button onClick={openCreateModal} variant="default" size="sm" className="gap-1.5">
+                    <Plus className="size-4" />
+                    Add Product
+                  </Button>
+                </div>
               )}
             </div>
           ) : (
@@ -306,9 +388,23 @@ export function CatalogManager() {
                         )}
                         <div>
                           <h4 className="font-semibold text-sm text-foreground line-clamp-1">{p.name}</h4>
-                          <p className="text-xs font-medium text-primary">
-                            {p.currency || defaultCurrency} {p.price.toFixed(2)}
-                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs font-medium text-primary">
+                              {p.currency || defaultCurrency} {p.price.toFixed(2)}
+                            </span>
+                            {p.sku && (
+                              <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                                SKU: {p.sku}
+                              </span>
+                            )}
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                              p.quantity === '0'
+                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                : 'bg-muted text-muted-foreground'
+                            }`}>
+                              Qty: {p.quantity || 'Infinite'}
+                            </span>
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
@@ -430,17 +526,27 @@ export function CatalogManager() {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Product Name *</Label>
-              <Input
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                placeholder="e.g. Red Sneakers"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Product Name *</Label>
+                <Input
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  placeholder="e.g. Red Sneakers"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>SKU (Optional)</Label>
+                <Input
+                  value={formSku}
+                  onChange={(e) => setFormSku(e.target.value)}
+                  placeholder="e.g. MF01"
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
-              <div className="col-span-2 space-y-1.5">
+              <div className="space-y-1.5">
                 <Label>Price *</Label>
                 <Input
                   type="number"
@@ -457,6 +563,14 @@ export function CatalogManager() {
                   value={formCurrency}
                   onChange={(e) => setFormCurrency(e.target.value)}
                   placeholder="SAR"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Quantity</Label>
+                <Input
+                  value={formQuantity}
+                  onChange={(e) => setFormQuantity(e.target.value)}
+                  placeholder="Infinite"
                 />
               </div>
             </div>

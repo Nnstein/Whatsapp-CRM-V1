@@ -45,6 +45,12 @@ export async function PUT(
       if (!Number.isFinite(p) || p < 0) return bad("'price' must be a non-negative number");
       updates.price = p;
     }
+    if ('sku' in body) {
+      updates.sku = typeof body.sku === 'string' ? body.sku.trim() || null : null;
+    }
+    if ('quantity' in body) {
+      updates.quantity = typeof body.quantity === 'string' && body.quantity.trim() ? body.quantity.trim() : 'Infinite';
+    }
     if (typeof body.currency === 'string') updates.currency = body.currency.trim().toUpperCase();
     if ('image_url' in body) {
       updates.image_url = typeof body.image_url === 'string' ? body.image_url.trim() || null : null;
@@ -63,7 +69,7 @@ export async function PUT(
       .update(updates)
       .eq('id', id)
       .eq('account_id', accountId)
-      .select('id, name, description, price, currency, image_url, variants, tags, is_active, sort_order, updated_at')
+      .select('*')
       .single();
 
     if (error) {
