@@ -16,13 +16,23 @@ export const zidAdapter: UniversalStoreAdapter = {
   async fetchProducts(credentials: Record<string, unknown>): Promise<NormalizedProduct[]> {
     const jsonStr = typeof credentials === 'string' ? credentials : JSON.stringify(credentials);
     const parsedCreds = parseZidCredentials(jsonStr);
-    const rawToken = (parsedCreds.access_token || parsedCreds.auth_token || parsedCreds.manager_token || '').trim();
-    const cleanToken = rawToken.replace(/^bearer\s+/i, '');
-    const bearerToken = `Bearer ${cleanToken}`;
+
+    // Zid requires BOTH tokens, and they are different values:
+    //   Authorization: Bearer <authorization_token>  (app-level JWT)
+    //   X-Manager-Token: <access_token>              (per-store Manager Token)
+    const managerToken = (parsedCreds.access_token || parsedCreds.manager_token || '').trim();
+    const authToken = (parsedCreds.authorization_token || parsedCreds.auth_token || '').trim();
+
+    if (!authToken) {
+      throw new Error(
+        'Zid connection is missing its Authorization Token — update it in Settings → Stores with BOTH the Authorization Token (JWT) and the Manager Token.',
+      );
+    }
 
     const headers: Record<string, string> = {
-      Authorization: bearerToken,
-      'X-Manager-Token': cleanToken,
+      Authorization: `Bearer ${authToken.replace(/^bearer\s+/i, '')}`,
+      'X-Manager-Token': managerToken,
+      Role: 'Manager',
       'Content-Type': 'application/json',
       Accept: 'application/json',
     };
@@ -30,20 +40,11 @@ export const zidAdapter: UniversalStoreAdapter = {
       headers['Store-Id'] = parsedCreds.store_id.trim();
     }
 
-    let response = await fetch(`${ZID_API_BASE}/managers/store/products?page=1&per_page=50`, {
+    const response = await fetch(`${ZID_API_BASE}/managers/store/products?page=1&per_page=50`, {
       method: 'GET',
       headers,
       signal: AbortSignal.timeout(15_000),
     });
-
-    if (response.status === 401) {
-      const fallbackRes = await fetch(`${ZID_API_BASE}/managers/store/products?page=1&per_page=50`, {
-        method: 'GET',
-        headers: { ...headers, Authorization: cleanToken },
-        signal: AbortSignal.timeout(15_000),
-      }).catch(() => null);
-      if (fallbackRes && fallbackRes.ok) response = fallbackRes;
-    }
 
     if (!response.ok) {
       throw new Error(`Zid API error (HTTP ${response.status}) when fetching products.`);

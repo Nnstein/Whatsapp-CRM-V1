@@ -78,11 +78,17 @@ export async function POST(request: Request) {
     let result: TestConnectionResult;
 
     if (connector_type === 'zid') {
+      // Zid needs TWO distinct tokens — never collapse them into one:
+      //   authorization_token → Authorization: Bearer (app-level JWT)
+      //   access_token        → X-Manager-Token (per-store Manager Token)
       result = await testZidConnection({
         store_id: String(creds.store_id ?? creds.storeId ?? '').trim(),
-        access_token: String(creds.access_token ?? creds.accessToken ?? creds.auth_token ?? creds.manager_token ?? '').trim(),
-        auth_token: String(creds.auth_token ?? creds.access_token ?? '').trim(),
-        manager_token: String(creds.manager_token ?? creds.access_token ?? '').trim(),
+        authorization_token: String(
+          creds.authorization_token ?? creds.authorizationToken ?? creds.auth_token ?? '',
+        ).trim(),
+        access_token: String(
+          creds.access_token ?? creds.accessToken ?? creds.manager_token ?? '',
+        ).trim(),
       });
     } else {
       // Future connectors: add their test dispatch here.

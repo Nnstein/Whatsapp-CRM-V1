@@ -20,22 +20,31 @@ export const STORE_CONNECTORS: StoreConnectorMeta[] = [
     docsUrl: 'https://developers.zid.sa/',
     fields: [
       {
+        key: 'access_token',
+        label: 'Manager Token (X-Manager-Token)',
+        type: 'password',
+        placeholder: 'eyJpdiI6…',
+        helpText:
+          'Per-store Manager Token. Zid merchant dashboard → Settings → API Integrations → Generate Manager Token.',
+        required: true,
+      },
+      {
+        key: 'authorization_token',
+        label: 'Authorization Token',
+        type: 'password',
+        placeholder: 'eyJ0eXAi…',
+        helpText:
+          'App-level JWT from the Zid OAuth flow (install a private app from the Zid Partner Dashboard on your store). Zid requires BOTH tokens — they are different values, not interchangeable.',
+        required: true,
+      },
+      {
         key: 'store_id',
         label: 'Store ID',
         type: 'text',
         placeholder: 'e.g. 10042',
         helpText:
-          'Your Zid Store ID. Found in your Zid merchant dashboard under API Integrations.',
-        required: true,
-      },
-      {
-        key: 'access_token',
-        label: 'Access Token',
-        type: 'password',
-        placeholder: 'Paste your Zid Access Token…',
-        helpText:
-          'Your Zid Access Token. Found in your Zid merchant dashboard under API Integrations.',
-        required: true,
+          'Optional — the Manager Token already scopes your store. Sent as the Store-Id header when provided.',
+        required: false,
       },
     ],
   },
