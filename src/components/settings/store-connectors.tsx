@@ -515,6 +515,42 @@ function ConnectorForm({
             </div>
           )}
 
+          {/* Webhook URL — shown after saving so the merchant can copy it into their store */}
+          {isSaved && connection.webhook_secret && (
+            <>
+              <Separator />
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Order Webhook URL
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Paste this URL into your {connector.label} store&rsquo;s webhook settings.
+                  Orders will auto-confirm matching carts in your CRM.
+                </p>
+                <div
+                  className="mt-1 font-mono text-[11px] bg-muted p-2 rounded border overflow-x-auto select-all cursor-text break-all"
+                  title="Click to select all"
+                >
+                  {typeof window !== 'undefined'
+                    ? `${window.location.origin}/api/v1/webhooks/stores/${connector.id}?token=${connection.webhook_secret}`
+                    : `/api/v1/webhooks/stores/${connector.id}?token=${connection.webhook_secret}`}
+                </div>
+                <button
+                  type="button"
+                  className="text-[11px] text-primary hover:underline"
+                  onClick={() => {
+                    const url = typeof window !== 'undefined'
+                      ? `${window.location.origin}/api/v1/webhooks/stores/${connector.id}?token=${connection.webhook_secret}`
+                      : '';
+                    if (url) navigator.clipboard.writeText(url);
+                  }}
+                >
+                  Copy webhook URL
+                </button>
+              </div>
+            </>
+          )}
+
           {!canEdit && (
             <p className="text-xs text-muted-foreground">
               Only admins and owners can manage store connections.
@@ -644,12 +680,38 @@ export function StoreConnectors() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-xs">
-              <div>
-                <Label className="text-muted-foreground text-[11px]">Universal Webhook URL</Label>
-                <div className="mt-1 font-mono text-xs bg-muted p-2 rounded border overflow-x-auto select-all">
-                  {typeof window !== 'undefined' ? `${window.location.origin}/api/v1/webhooks/stores/generic` : '/api/v1/webhooks/stores/generic'}
-                </div>
-              </div>
+              {/* Webhook URL — shows the token-scoped URL if the generic connection exists */}
+              {(() => {
+                const genericConn = connections.find((c) => c.connector_type === 'generic');
+                const webhookUrl = genericConn?.webhook_secret
+                  ? (typeof window !== 'undefined'
+                      ? `${window.location.origin}/api/v1/webhooks/stores/generic?token=${genericConn.webhook_secret}`
+                      : `/api/v1/webhooks/stores/generic?token=${genericConn.webhook_secret}`)
+                  : null;
+                return (
+                  <div>
+                    <Label className="text-muted-foreground text-[11px]">Universal Webhook URL</Label>
+                    {webhookUrl ? (
+                      <>
+                        <div className="mt-1 font-mono text-xs bg-muted p-2 rounded border overflow-x-auto select-all break-all">
+                          {webhookUrl}
+                        </div>
+                        <button
+                          type="button"
+                          className="mt-1 text-[11px] text-primary hover:underline"
+                          onClick={() => navigator.clipboard.writeText(webhookUrl)}
+                        >
+                          Copy webhook URL
+                        </button>
+                      </>
+                    ) : (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Your secure webhook URL will appear here after you save a Generic / Custom Store connection above.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Interactive Test Form */}
               <div className="pt-2 space-y-3 border-t border-border/50">
@@ -748,7 +810,12 @@ export function StoreConnectors() {
                           currency: testCurrency.trim() || defaultCurrency || 'SAR',
                         };
 
-                        const res = await fetch('/api/v1/webhooks/stores/generic', {
+                        const genericConn = connections.find((c) => c.connector_type === 'generic');
+                        const webhookEndpoint = genericConn?.webhook_secret
+                          ? `/api/v1/webhooks/stores/generic?token=${genericConn.webhook_secret}`
+                          : '/api/v1/webhooks/stores/generic';
+
+                        const res = await fetch(webhookEndpoint, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify(payload),

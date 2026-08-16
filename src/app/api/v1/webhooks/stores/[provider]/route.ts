@@ -8,12 +8,24 @@ function bad(msg: string, status = 400) {
 }
 
 /**
- * POST /api/v1/webhooks/stores/[provider]
+ * POST /api/v1/webhooks/stores/[provider]?token=<webhook_secret>
  *
  * Public store order webhook receiver (Zid, Salla, Generic/Custom Store).
  *
+ * Security model
+ * ──────────────
+ * Every `store_connections` row has a stable random `webhook_secret` (32 hex
+ * chars). The merchant pastes a URL that includes it as `?token=…`. This token
+ * scopes the incoming request to a specific account — no account-agnostic phone
+ * scanning across all tenants.
+ *
+ * Lookup order:
+ *   1. Validate `?token` is present (400 if missing).
+ *   2. Load the store_connections row by (connector_type = provider, webhook_secret = token).
+ *      Returns 401 if not found — the token is wrong or the connection was deleted.
+ *   3. Resolve the contact within that account only.
+ *
  * Body: Raw JSON payload sent by the e-commerce store / snippet.
- * Optional query: `?token=ACCOUNT_ID_OR_TOKEN`
  */
 export async function POST(
   request: Request,
@@ -27,6 +39,35 @@ export async function POST(
       return bad(`Unsupported store webhook provider '${provider}'`, 404);
     }
 
+    // ── 1. Require the webhook token ──────────────────────────────────────
+    const url = new URL(request.url);
+    const token = url.searchParams.get('token');
+    if (!token) {
+      return bad(
+        'Missing required ?token parameter. Copy the webhook URL from Settings → Store Connectors.',
+        400
+      );
+    }
+
+    const db = supabaseAdmin();
+
+    // ── 2. Resolve account via token (single-row lookup, fully scoped) ────
+    const { data: conn } = await db
+      .from('store_connections')
+      .select('id, account_id, connector_type')
+      .eq('connector_type', provider)
+      .eq('webhook_secret', token)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (!conn) {
+      // Don't leak whether the token exists; use 401.
+      return bad('Invalid or unknown webhook token.', 401);
+    }
+
+    const accountId = conn.account_id;
+
+    // ── 3. Parse the order payload ────────────────────────────────────────
     let body: unknown;
     try {
       body = await request.json();
@@ -34,7 +75,6 @@ export async function POST(
       return bad('Invalid JSON body');
     }
 
-    // 1. Parse order payload via adapter
     const parsed = adapter.parseOrderWebhook(request.headers, body);
     if (!parsed || !parsed.customerPhone || !parsed.externalOrderId) {
       return NextResponse.json({
@@ -44,14 +84,14 @@ export async function POST(
       });
     }
 
-    const db = supabaseAdmin();
+    // ── 4. Resolve contact within THIS account only ───────────────────────
     const normalizedDigits = normalizePhone(parsed.customerPhone);
     const suffix = normalizedDigits.slice(-8);
 
-    // 2. Find matching contact by phone suffix
     const { data: contacts } = await db
       .from('contacts')
       .select('id, account_id, name, phone')
+      .eq('account_id', accountId)          // ← scoped to the token's account
       .ilike('phone', `%${suffix}`);
 
     if (!contacts || contacts.length === 0) {
@@ -65,11 +105,11 @@ export async function POST(
     const contact = contacts[0];
     let cartConfirmed = false;
 
-    // 3. Look for active or checkout_sent cart for this contact
+    // ── 5. Update the open/checkout_sent cart if one exists ───────────────
     const { data: carts } = await db
       .from('whatsapp_carts')
       .select('id, status')
-      .eq('account_id', contact.account_id)
+      .eq('account_id', accountId)
       .eq('contact_id', contact.id)
       .in('status', ['open', 'checkout_sent'])
       .order('created_at', { ascending: false })
@@ -96,17 +136,19 @@ export async function POST(
       }
     }
 
-    // 4. Log contact note / timeline entry for the order
-    const noteText = `🛒 Store Order #${parsed.externalOrderId} (${provider.toUpperCase()}):\nTotal: ${parsed.currency} ${parsed.totalAmount.toFixed(2)} — Status: ${parsed.status.toUpperCase()}`;
+    // ── 6. Log a contact note / timeline entry for the order ─────────────
+    const noteText =
+      `🛒 Store Order #${parsed.externalOrderId} (${provider.toUpperCase()}):\n` +
+      `Total: ${parsed.currency} ${parsed.totalAmount.toFixed(2)} — Status: ${parsed.status.toUpperCase()}`;
 
     try {
       await db.from('contact_notes').insert({
-        account_id: contact.account_id,
+        account_id: accountId,
         contact_id: contact.id,
         note_text: noteText,
       });
     } catch {
-      // Best effort note logging
+      // Best-effort note logging — don't fail the webhook
     }
 
     return NextResponse.json({

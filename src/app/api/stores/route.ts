@@ -22,7 +22,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from('store_connections')
       .select(
-        'id, connector_type, store_label, is_active, last_tested_at, last_test_status, last_test_error, created_at, updated_at',
+        'id, connector_type, store_label, is_active, last_tested_at, last_test_status, last_test_error, webhook_secret, created_at, updated_at',
       )
       .eq('account_id', accountId)
       .order('created_at', { ascending: true });
@@ -101,6 +101,10 @@ export async function POST(request: Request) {
 
     const credentialsEncrypted = encrypt(JSON.stringify(sanitized));
 
+    // Generate a webhook_secret token for new rows only. For updates we
+    // preserve the existing token so the merchant's webhook URL stays stable.
+    // We achieve this by using a two-step approach: upsert without touching
+    // webhook_secret (DB default is null), then backfill if still null.
     const { data, error } = await supabase
       .from('store_connections')
       .upsert(
@@ -115,11 +119,12 @@ export async function POST(request: Request) {
           last_test_status: null,
           last_test_error: null,
           store_label: null,
+          // webhook_secret intentionally omitted — preserves existing token on update.
         },
         { onConflict: 'account_id,connector_type' },
       )
       .select(
-        'id, connector_type, store_label, is_active, last_tested_at, last_test_status, last_test_error, created_at, updated_at',
+        'id, connector_type, store_label, is_active, last_tested_at, last_test_status, last_test_error, webhook_secret, created_at, updated_at',
       )
       .single();
 
@@ -128,7 +133,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to save store connection' }, { status: 500 });
     }
 
-    return NextResponse.json({ connection: { ...data, has_credentials: true } });
+    // If this was a new row (no token yet), generate and persist one now.
+    let finalData = data;
+    if (!data.webhook_secret) {
+      const token = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      const { data: updated } = await supabase
+        .from('store_connections')
+        .update({ webhook_secret: token })
+        .eq('id', data.id)
+        .select(
+          'id, connector_type, store_label, is_active, last_tested_at, last_test_status, last_test_error, webhook_secret, created_at, updated_at',
+        )
+        .single();
+      if (updated) finalData = updated;
+    }
+
+    return NextResponse.json({ connection: { ...finalData, has_credentials: true } });
   } catch (err) {
     return toErrorResponse(err);
   }

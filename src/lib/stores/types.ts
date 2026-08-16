@@ -44,6 +44,13 @@ export interface StoreConnection {
   last_tested_at: string | null;
   last_test_status: 'ok' | 'error' | null;
   last_test_error: string | null;
+  /**
+   * Stable random token (32 hex chars) that scopes the incoming webhook URL
+   * to this specific account+connection. Included in the webhook URL as
+   * `?token=<webhook_secret>`. Safe to show in the UI — it's a URL token,
+   * not a private API credential.
+   */
+  webhook_secret: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -35,3 +35,9 @@ ALTER TABLE store_connections
   ADD COLUMN IF NOT EXISTS last_products_sync_status text,
   ADD COLUMN IF NOT EXISTS last_products_sync_error text,
   ADD COLUMN IF NOT EXISTS webhook_secret text;
+
+-- Backfill a stable random webhook token for all existing connections.
+-- New rows will have this set by the API on INSERT.
+UPDATE store_connections
+  SET webhook_secret = encode(gen_random_bytes(16), 'hex')
+  WHERE webhook_secret IS NULL;
