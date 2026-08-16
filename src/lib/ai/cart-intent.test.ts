@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { classifyCartIntent } from './cart-intent';
+import {
+  classifyCartIntent,
+  resolveProductFromMessage,
+  parseQuantity,
+  extractProductHint,
+  extractVariantHint,
+  type CatalogProductRef,
+} from './cart-intent';
+
+// ─────────────────────────────────────────────────────────────
+// classifyCartIntent
+// ─────────────────────────────────────────────────────────────
 
 describe('classifyCartIntent — browse_catalog', () => {
   it('matches English product browsing', () => {
@@ -90,5 +101,152 @@ describe('classifyCartIntent — no match', () => {
     expect(classifyCartIntent('What are your opening hours?')).toBeNull();
     expect(classifyCartIntent('thank you')).toBeNull();
     expect(classifyCartIntent('')).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// extractProductHint
+// ─────────────────────────────────────────────────────────────
+
+describe('extractProductHint', () => {
+  it('strips English intent prefixes', () => {
+    expect(extractProductHint('I want the Red Lipstick')).toBe('Red Lipstick');
+    expect(extractProductHint("I'll take the moisturiser")).toBe('moisturiser');
+    expect(extractProductHint('add the shampoo')).toBe('shampoo');
+  });
+
+  it('strips Arabic intent prefixes', () => {
+    expect(extractProductHint('أبغى الشامبو')).toBe('الشامبو');
+    expect(extractProductHint('أريد كريم الوجه')).toBe('كريم الوجه');
+  });
+
+  it('falls back to full text when no prefix matches', () => {
+    expect(extractProductHint('Red Lipstick')).toBe('Red Lipstick');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// resolveProductFromMessage
+// ─────────────────────────────────────────────────────────────
+
+const PRODUCTS: CatalogProductRef[] = [
+  { id: 'p1', name: 'Red Lipstick', price: 50 },
+  { id: 'p2', name: 'Moisturising Face Cream', price: 120 },
+  { id: 'p3', name: 'Hair Shampoo', price: 35, variants: [{ label: 'Dry' }, { label: 'Oily' }] },
+  { id: 'p4', name: 'Sunscreen SPF 50', price: 90 },
+  { id: 'p5', name: 'Eye Shadow Palette', price: 200 },
+];
+
+describe('resolveProductFromMessage — catalog number', () => {
+  it('resolves "product 1" to the first product', () => {
+    const r = resolveProductFromMessage('I want product 1', PRODUCTS);
+    expect(r?.product.id).toBe('p1');
+  });
+
+  it('resolves a plain digit "2" against lastShownProducts', () => {
+    const shown = [PRODUCTS[3], PRODUCTS[0]]; // SPF, Lipstick
+    const r = resolveProductFromMessage('2', PRODUCTS, shown);
+    expect(r?.product.id).toBe('p1'); // 2nd in shown list
+  });
+
+  it('resolves Arabic-Indic digit رقم ٢', () => {
+    const r = resolveProductFromMessage('رقم ٢', PRODUCTS);
+    expect(r?.product.id).toBe('p2');
+  });
+
+  it('returns null for out-of-range number', () => {
+    const r = resolveProductFromMessage('product 99', PRODUCTS);
+    expect(r).toBeNull();
+  });
+});
+
+describe('resolveProductFromMessage — name matching', () => {
+  it('exact match', () => {
+    const r = resolveProductFromMessage('I want the Red Lipstick', PRODUCTS);
+    expect(r?.product.id).toBe('p1');
+  });
+
+  it('case-insensitive match', () => {
+    const r = resolveProductFromMessage('red lipstick', PRODUCTS);
+    expect(r?.product.id).toBe('p1');
+  });
+
+  it('fuzzy partial match (>= 0.5 score)', () => {
+    const r = resolveProductFromMessage('I want the shampoo', PRODUCTS);
+    expect(r?.product.id).toBe('p3');
+  });
+
+  it('returns null when nothing is confident', () => {
+    const r = resolveProductFromMessage('I want that thing', PRODUCTS);
+    expect(r).toBeNull();
+  });
+});
+
+describe('resolveProductFromMessage — variant hint', () => {
+  it('extracts variant from the message', () => {
+    const r = resolveProductFromMessage('I want the Oily shampoo', PRODUCTS);
+    expect(r?.product.id).toBe('p3');
+    expect(r?.variantHint).toBe('Oily');
+  });
+
+  it('returns empty variantHint when variant not mentioned', () => {
+    const r = resolveProductFromMessage('I want the red lipstick', PRODUCTS);
+    expect(r?.variantHint).toBe('');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// parseQuantity
+// ─────────────────────────────────────────────────────────────
+
+describe('parseQuantity', () => {
+  it('parses explicit numbers', () => {
+    expect(parseQuantity('I want 3 of the lipstick')).toBe(3);
+    expect(parseQuantity('add 2 moisturiser')).toBe(2);
+    expect(parseQuantity('× 5 shampoo')).toBe(5);
+  });
+
+  it('parses written-out word numbers', () => {
+    expect(parseQuantity('I want two of those')).toBe(2);
+    expect(parseQuantity('give me five')).toBe(5);
+  });
+
+  it('parses Arabic-Indic digits', () => {
+    expect(parseQuantity('أبغى ٣ من الشامبو')).toBe(3);
+  });
+
+  it('defaults to 1 when no quantity found', () => {
+    expect(parseQuantity('I want the lipstick')).toBe(1);
+    expect(parseQuantity('add to cart')).toBe(1);
+  });
+
+  it('rejects out-of-range values (> 100)', () => {
+    expect(parseQuantity('I want 999 items')).toBe(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// extractVariantHint
+// ─────────────────────────────────────────────────────────────
+
+describe('extractVariantHint', () => {
+  const productWithVariants: CatalogProductRef = {
+    id: 'p3',
+    name: 'Hair Shampoo',
+    price: 35,
+    variants: [{ label: 'Dry' }, { label: 'Oily' }],
+  };
+
+  it('matches a variant label in the text', () => {
+    expect(extractVariantHint('I want the dry shampoo', productWithVariants)).toBe('Dry');
+  });
+
+  it('returns empty string when no variant found', () => {
+    expect(extractVariantHint('I want the shampoo', productWithVariants)).toBe('');
+  });
+
+  it('returns empty string for a product with no variants', () => {
+    const p: CatalogProductRef = { id: 'p1', name: 'Red Lipstick', price: 50 };
+    expect(extractVariantHint('I want the oily red lipstick', p)).toBe('');
   });
 });

@@ -100,6 +100,9 @@ ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS cost numeric(12,2);
 ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS sale_price numeric(12,2);
 ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS has_variants boolean NOT NULL DEFAULT false;
 
+-- Tracks the last product list shown to a contact so "I want number 2" resolves correctly.
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS last_catalog_product_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
+
 ALTER TABLE catalog_products ENABLE ROW LEVEL SECURITY;
 
 -- SELECT: any account member (agents need to browse the catalog)
