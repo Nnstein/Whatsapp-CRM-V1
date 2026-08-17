@@ -98,6 +98,7 @@ export function CatalogManager() {
   const [newImageUrl, setNewImageUrl] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
   const [formTags, setFormTags] = useState("");
+  const [formCategories, setFormCategories] = useState("");
   const [formVariants, setFormVariants] = useState("");
 
   const activeCurrency = defaultCurrency || "SAR";
@@ -186,6 +187,7 @@ export function CatalogManager() {
     setFormImages([]);
     setNewImageUrl("");
     setFormTags("");
+    setFormCategories("");
     setFormVariants("");
     setModalOpen(true);
   }
@@ -200,6 +202,7 @@ export function CatalogManager() {
     setFormImages(p.images && p.images.length > 0 ? p.images : p.image_url ? [p.image_url] : []);
     setNewImageUrl("");
     setFormTags((p.tags || []).join(", "));
+    setFormCategories((p.categories || []).join(", "));
     setFormVariants(
       (p.variants || []).map((v) => v.label).filter(Boolean).join(", ")
     );
@@ -277,6 +280,10 @@ export function CatalogManager() {
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean);
+    const parsedCategories = formCategories
+      .split(",")
+      .map((c) => c.trim())
+      .filter(Boolean);
     const parsedVariants = formVariants
       .split(",")
       .map((v) => v.trim())
@@ -293,6 +300,7 @@ export function CatalogManager() {
       image_url: formImages[0] || null,
       images: formImages,
       tags: parsedTags,
+      categories: parsedCategories,
       variants: parsedVariants,
     };
 
@@ -1046,6 +1054,18 @@ export function CatalogManager() {
                 onChange={(e) => setFormTags(e.target.value)}
                 placeholder="shoes, red, sale"
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Categories (comma-separated)</Label>
+              <Input
+                value={formCategories}
+                onChange={(e) => setFormCategories(e.target.value)}
+                placeholder="Footwear, Summer Collection"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Categories group products for browsing; tags are for search keywords. Both are searchable.
+              </p>
             </div>
           </div>
 

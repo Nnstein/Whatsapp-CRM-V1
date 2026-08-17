@@ -90,6 +90,7 @@ export async function POST(request: Request) {
         images: Array.isArray(body.images) ? body.images : typeof body.image_url === 'string' && body.image_url.trim() ? [body.image_url.trim()] : [],
         variants: Array.isArray(body.variants) ? body.variants : [],
         tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === 'string') : [],
+        categories: Array.isArray(body.categories) ? body.categories.filter((c): c is string => typeof c === 'string') : [],
         is_active: body.is_active !== false,
         sort_order: typeof body.sort_order === 'number' ? Math.round(body.sort_order) : 0,
       })

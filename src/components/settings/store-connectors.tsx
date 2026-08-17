@@ -24,6 +24,7 @@ import { format } from 'date-fns';
 import { useAuth } from '@/hooks/use-auth';
 import { canEditSettings } from '@/lib/auth/roles';
 import { STORE_CONNECTORS } from '@/lib/stores/registry';
+import { generateStorePixelSnippet } from '@/lib/stores/adapters/generic';
 import type { StoreConnectorMeta, StoreConnection } from '@/lib/stores/types';
 
 import { Button } from '@/components/ui/button';
@@ -709,6 +710,34 @@ export function StoreConnectors() {
                         Your secure webhook URL will appear here after you save a Generic / Custom Store connection above.
                       </p>
                     )}
+                  </div>
+                );
+              })()}
+
+              {/* Copyable JS snippet for custom storefronts */}
+              {(() => {
+                const genericConn = connections.find((c) => c.connector_type === 'generic');
+                if (!genericConn?.webhook_secret) return null;
+                const apiRoot = typeof window !== 'undefined' ? window.location.origin : '';
+                const snippet = generateStorePixelSnippet(genericConn.webhook_secret, apiRoot);
+                return (
+                  <div className="pt-2 border-t border-border/50">
+                    <Label className="text-muted-foreground text-[11px]">Website Tracking Snippet (order_placed)</Label>
+                    <pre className="mt-1 font-mono text-[11px] bg-muted p-2 rounded border overflow-x-auto select-all whitespace-pre-wrap break-all">
+                      {snippet}
+                    </pre>
+                    <button
+                      type="button"
+                      className="mt-1 text-[11px] text-primary hover:underline"
+                      onClick={() => navigator.clipboard.writeText(snippet)}
+                    >
+                      Copy snippet
+                    </button>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Paste before &lt;/body&gt; on your store, then fire{' '}
+                      <code className="font-mono">WACRM.trackOrder({'{'} order_id, customer_phone, status, total, currency {'}'})</code>{' '}
+                      from your order-confirmation page to send order_placed events to the CRM.
+                    </p>
                   </div>
                 );
               })()}

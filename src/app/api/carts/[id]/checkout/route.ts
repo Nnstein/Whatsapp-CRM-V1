@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account';
 import { engineSendText } from '@/lib/flows/meta-send';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { getStoreCheckoutUrl } from '@/lib/stores/checkout-url';
 
 function bad(msg: string) {
   return NextResponse.json({ error: msg }, { status: 400 });
@@ -95,11 +96,20 @@ export async function POST(
       .reduce((sum, item) => sum + item.product_price * item.quantity, 0)
       .toFixed(2);
 
+    // If a store with checkout-link support is connected, prefer a
+    // store-native checkout URL over manual payment instructions.
+    const checkout = await getStoreCheckoutUrl(db, accountId, {
+      items,
+      total: parseFloat(total),
+      currency,
+    });
+
     const message = [
       '🛒 *Your order summary:*',
       lines,
       `\n*Total: ${currency} ${total}*`,
-      paymentNote ? `\n💳 *Payment:*\n${paymentNote}` : '',
+      checkout ? `\n🔗 *Pay securely online:*\n${checkout.url}` : '',
+      !checkout && paymentNote ? `\n💳 *Payment:*\n${paymentNote}` : '',
       '\nThank you for your order! We\'ll confirm once payment is received. 🙏',
     ]
       .filter(Boolean)
@@ -121,6 +131,8 @@ export async function POST(
         status: 'checkout_sent',
         checkout_note: paymentNote || null,
         conversation_id: conversationId,
+        store_checkout_url: checkout?.url ?? null,
+        store_connection_id: checkout?.connectionId ?? null,
       })
       .eq('id', cartId);
 

@@ -59,6 +59,9 @@ export async function PUT(
     if (Array.isArray(body.tags)) {
       updates.tags = body.tags.filter((t): t is string => typeof t === 'string');
     }
+    if (Array.isArray(body.categories)) {
+      updates.categories = body.categories.filter((c): c is string => typeof c === 'string');
+    }
     if (typeof body.is_active === 'boolean') updates.is_active = body.is_active;
     if (typeof body.sort_order === 'number') updates.sort_order = Math.round(body.sort_order);
 

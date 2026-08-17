@@ -1,10 +1,33 @@
 import { NextResponse } from 'next/server';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { getStoreAdapter } from '@/lib/stores/adapters/registry';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
+import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
+import { decrementCartInventory } from '@/lib/stores/inventory';
 
 function bad(msg: string, status = 400) {
   return NextResponse.json({ error: msg }, { status });
+}
+
+/** Max webhook body size — order payloads are small; anything bigger is junk. */
+const MAX_BODY_BYTES = 64 * 1024;
+
+function clientIp(request: Request): string {
+  const fwd = request.headers.get('x-forwarded-for');
+  if (fwd) return fwd.split(',')[0].trim();
+  return request.headers.get('x-real-ip') ?? 'unknown';
+}
+
+/**
+ * Verify X-WACRM-Signature: sha256=<hex hmac of raw body with signing_secret>.
+ */
+function verifySignature(rawBody: string, secret: string, header: string | null): boolean {
+  if (!header || !header.startsWith('sha256=')) return false;
+  const expected = createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex');
+  const given = header.slice('sha256='.length);
+  if (expected.length !== given.length) return false;
+  return timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(given, 'utf8'));
 }
 
 /**
@@ -39,6 +62,23 @@ export async function POST(
       return bad(`Unsupported store webhook provider '${provider}'`, 404);
     }
 
+    // ── 0. Per-IP rate limit (this endpoint is public) ────────────────────
+    const rl = checkRateLimit(`store-webhook:${clientIp(request)}`, {
+      limit: 60,
+      windowMs: 60_000,
+    });
+    if (!rl.success) return rateLimitResponse(rl);
+
+    // ── 0b. Body size cap — reject before parsing ─────────────────────────
+    const contentLength = Number(request.headers.get('content-length') ?? 0);
+    if (contentLength > MAX_BODY_BYTES) {
+      return bad('Payload too large', 413);
+    }
+    const rawBody = await request.text();
+    if (rawBody.length > MAX_BODY_BYTES) {
+      return bad('Payload too large', 413);
+    }
+
     // ── 1. Require the webhook token ──────────────────────────────────────
     const url = new URL(request.url);
     const token = url.searchParams.get('token');
@@ -54,7 +94,7 @@ export async function POST(
     // ── 2. Resolve account via token (single-row lookup, fully scoped) ────
     const { data: conn } = await db
       .from('store_connections')
-      .select('id, account_id, connector_type')
+      .select('id, account_id, connector_type, signing_secret')
       .eq('connector_type', provider)
       .eq('webhook_secret', token)
       .eq('is_active', true)
@@ -67,10 +107,22 @@ export async function POST(
 
     const accountId = conn.account_id;
 
+    // ── 2b. HMAC signature (only when a signing_secret is configured) ─────
+    if (conn.signing_secret) {
+      const ok = verifySignature(
+        rawBody,
+        conn.signing_secret,
+        request.headers.get('x-wacrm-signature'),
+      );
+      if (!ok) {
+        return bad('Invalid webhook signature.', 401);
+      }
+    }
+
     // ── 3. Parse the order payload ────────────────────────────────────────
     let body: unknown;
     try {
-      body = await request.json();
+      body = JSON.parse(rawBody);
     } catch {
       return bad('Invalid JSON body');
     }
@@ -128,6 +180,13 @@ export async function POST(
           })
           .eq('id', activeCart.id);
         cartConfirmed = true;
+
+        // Deduct tracked inventory (best-effort — never fail the webhook).
+        try {
+          await decrementCartInventory(db, activeCart.id);
+        } catch (invErr) {
+          console.error('[store-webhook] inventory deduction error:', invErr);
+        }
       } else if (parsed.status === 'cancelled') {
         await db
           .from('whatsapp_carts')

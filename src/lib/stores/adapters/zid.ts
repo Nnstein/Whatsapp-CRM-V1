@@ -40,24 +40,41 @@ export const zidAdapter: UniversalStoreAdapter = {
       headers['Store-Id'] = parsedCreds.store_id.trim();
     }
 
-    const response = await fetch(`${ZID_API_BASE}/managers/store/products?page=1&per_page=50`, {
-      method: 'GET',
-      headers,
-      signal: AbortSignal.timeout(15_000),
-    });
+    // Zid paginates the products endpoint — walk pages until a short/empty
+    // page is returned. Capped at MAX_PAGES as a safety valve against a
+    // misbehaving API returning full pages forever.
+    const PER_PAGE = 50;
+    const MAX_PAGES = 20; // up to 1,000 products per sync
 
-    if (!response.ok) {
-      throw new Error(`Zid API error (HTTP ${response.status}) when fetching products.`);
+    const rawProducts: any[] = [];
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const response = await fetch(
+        `${ZID_API_BASE}/managers/store/products?page=${page}&per_page=${PER_PAGE}`,
+        {
+          method: 'GET',
+          headers,
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(`Zid API error (HTTP ${response.status}) when fetching products (page ${page}).`);
+      }
+
+      const body = await response.json();
+      const pageProducts = Array.isArray(body?.products)
+        ? body.products
+        : Array.isArray(body?.data?.products)
+        ? body.data.products
+        : Array.isArray(body?.results)
+        ? body.results
+        : [];
+
+      rawProducts.push(...pageProducts);
+
+      // Short or empty page → we've reached the end of the catalog.
+      if (pageProducts.length < PER_PAGE) break;
     }
-
-    const body = await response.json();
-    const rawProducts = Array.isArray(body?.products)
-      ? body.products
-      : Array.isArray(body?.data?.products)
-      ? body.data.products
-      : Array.isArray(body?.results)
-      ? body.results
-      : [];
 
     return rawProducts.map((p: any): NormalizedProduct => {
       // Resolve localized name

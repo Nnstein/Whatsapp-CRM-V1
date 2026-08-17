@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/account';
+import { decrementCartInventory, type InventoryDeductionResult } from '@/lib/stores/inventory';
 
 /**
  * POST /api/carts/[id]/confirm
@@ -49,7 +50,16 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to confirm cart' }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true });
+    // Deduct tracked inventory for the confirmed order (best-effort —
+    // never fail the confirm because stock bookkeeping failed).
+    let inventory: InventoryDeductionResult | null = null;
+    try {
+      inventory = await decrementCartInventory(supabase, cartId);
+    } catch (invErr) {
+      console.error('[cart confirm] inventory deduction error:', invErr);
+    }
+
+    return NextResponse.json({ ok: true, inventory });
   } catch (err) {
     return toErrorResponse(err);
   }
