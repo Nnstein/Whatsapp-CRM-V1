@@ -58,7 +58,17 @@ export const zidAdapter: UniversalStoreAdapter = {
       );
 
       if (!response.ok) {
-        throw new Error(`Zid API error (HTTP ${response.status}) when fetching products (page ${page}).`);
+        // Page 1 failing is fatal — that's where auth/permission errors
+        // surface, and there's nothing partial to salvage. A LATER page
+        // failing shouldn't nuke an otherwise-good sync: keep what we
+        // already pulled and stop paginating.
+        if (page === 1) {
+          throw new Error(`Zid API error (HTTP ${response.status}) when fetching products (page 1).`);
+        }
+        console.warn(
+          `[zid] page ${page} failed (HTTP ${response.status}); syncing ${rawProducts.length} products from earlier pages.`,
+        );
+        break;
       }
 
       const body = await response.json();
