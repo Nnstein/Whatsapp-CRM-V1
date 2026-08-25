@@ -15,6 +15,58 @@ import { NextResponse } from 'next/server';
  *   ZID_CLIENT_SECRET  — App Client Secret / App Secret from Zid Partner Dashboard
  *   APP_URL            — Public base URL of this deployment (e.g. https://whatsapp-crm-v1.onrender.com)
  */
+/**
+ * POST /api/stores/zid/callback
+ *
+ * Zid may POST the token/credentials to the Callback URL after the merchant
+ * authorizes the app. This handler logs the full request body so we can
+ * see exactly what Zid sends.
+ */
+export async function POST(request: Request) {
+  const url = new URL(request.url);
+  const allParams: Record<string, string> = {};
+  url.searchParams.forEach((v, k) => {
+    allParams[k] = v;
+  });
+
+  let body: unknown;
+  let rawBody = '';
+  try {
+    rawBody = await request.text();
+    body = JSON.parse(rawBody);
+  } catch {
+    body = rawBody;
+  }
+
+  const allHeaders: Record<string, string> = {};
+  request.headers.forEach((v, k) => {
+    allHeaders[k] = v;
+  });
+
+  console.log('=== ZID CALLBACK POST RECEIVED ===');
+  console.log('URL:', url.toString());
+  console.log('Query params:', JSON.stringify(allParams));
+  console.log('Headers:', JSON.stringify(allHeaders));
+  console.log('Body:', JSON.stringify(body));
+  console.log('==================================');
+
+  // Extract token from common field names
+  const bodyObj = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
+  const token = String(
+    bodyObj.access_token ?? bodyObj.authorization_token ?? bodyObj.token ?? ''
+  );
+  if (token) {
+    console.log('=== TOKEN FOUND IN POST BODY ===');
+    console.log('Token:', token);
+    console.log('================================');
+  }
+
+  return NextResponse.json({
+    received: true,
+    queryParams: allParams,
+    tokenFound: Boolean(token),
+  });
+}
 export async function GET(request: Request) {
   const url = new URL(request.url);
 
