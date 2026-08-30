@@ -3,6 +3,7 @@ import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account';
 import { engineSendText } from '@/lib/flows/meta-send';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { getStoreCheckoutUrl } from '@/lib/stores/checkout-url';
+import { getPaymentLink } from '@/lib/payments/payment-link';
 
 function bad(msg: string) {
   return NextResponse.json({ error: msg }, { status: 400 });
@@ -96,21 +97,48 @@ export async function POST(
       .reduce((sum, item) => sum + item.product_price * item.quantity, 0)
       .toFixed(2);
 
-    // If a store with checkout-link support is connected, prefer a
-    // store-native checkout URL over manual payment instructions.
-    const checkout = await getStoreCheckoutUrl(db, accountId, {
-      items,
-      total: parseFloat(total),
-      currency,
-    });
+    // Load contact info for customer name / phone on payment gateway.
+    const { data: contact } = await db
+      .from('contacts')
+      .select('id, name, phone, email')
+      .eq('id', cart.contact_id)
+      .maybeSingle();
+
+    const appUrl =
+      process.env.APP_URL?.replace(/\/$/, '') ??
+      (request.headers.get('x-forwarded-host')
+        ? `https://${request.headers.get('x-forwarded-host')}`
+        : new URL(request.url).origin);
+
+    // 1. In-chat payment gateway link (MyFatoorah, Hesabe, etc.)
+    const paymentLink = await getPaymentLink(
+      db,
+      accountId,
+      { items, total: parseFloat(total), currency },
+      cartId,
+      contact ?? { id: cart.contact_id },
+      conversationId,
+      appUrl,
+    );
+
+    // 2. Store checkout URL fallback if no payment link
+    const checkout = !paymentLink
+      ? await getStoreCheckoutUrl(db, accountId, {
+          items,
+          total: parseFloat(total),
+          currency,
+        })
+      : null;
+
+    const payUrl = paymentLink?.url ?? checkout?.url ?? null;
 
     const message = [
       '🛒 *Your order summary:*',
       lines,
       `\n*Total: ${currency} ${total}*`,
-      checkout ? `\n🔗 *Pay securely online:*\n${checkout.url}` : '',
-      !checkout && paymentNote ? `\n💳 *Payment:*\n${paymentNote}` : '',
-      '\nThank you for your order! We\'ll confirm once payment is received. 🙏',
+      payUrl ? `\n🔗 *Pay securely online:*\n${payUrl}` : '',
+      !payUrl && paymentNote ? `\n💳 *Payment:*\n${paymentNote}` : '',
+      "\nThank you for your order! We'll confirm once payment is received. 🙏",
     ]
       .filter(Boolean)
       .join('\n');
@@ -131,7 +159,7 @@ export async function POST(
         status: 'checkout_sent',
         checkout_note: paymentNote || null,
         conversation_id: conversationId,
-        store_checkout_url: checkout?.url ?? null,
+        store_checkout_url: payUrl,
         store_connection_id: checkout?.connectionId ?? null,
       })
       .eq('id', cartId);

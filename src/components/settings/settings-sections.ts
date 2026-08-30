@@ -1,5 +1,6 @@
 import {
   Coins,
+  CreditCard,
   FileText,
   KeyRound,
   LayoutGrid,
@@ -37,6 +38,7 @@ export const SETTINGS_SECTIONS = [
   'api',
   'stores',
   'catalog',
+  'payments',
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
@@ -65,6 +67,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   api: { id: 'api', label: 'API keys', icon: KeyRound, group: 'workspace' },
   stores: { id: 'stores', label: 'Store connectors', icon: ShoppingBag, group: 'workspace' },
   catalog: { id: 'catalog', label: 'Product Catalog', icon: Package, group: 'workspace' },
+  payments: { id: 'payments', label: 'Payment Gateways', icon: CreditCard, group: 'workspace' },
 };
 
 export const RAIL_GROUPS: { label: string | null; group: SectionMeta['group'] }[] = [

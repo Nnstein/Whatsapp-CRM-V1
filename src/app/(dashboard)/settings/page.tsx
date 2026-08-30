@@ -19,6 +19,7 @@ import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import { StoreConnectors } from '@/components/settings/store-connectors';
 import { CatalogManager } from '@/components/settings/catalog-manager';
+import { PaymentConnectorsSettings } from '@/components/settings/payment-connectors';
 import { canAccessSettingsSection } from '@/lib/auth/roles';
 import {
   resolveSection,
@@ -69,6 +70,7 @@ export default function SettingsPage() {
     api: <ApiKeysSettings />,
     stores: <StoreConnectors />,
     catalog: <CatalogManager />,
+    payments: <PaymentConnectorsSettings />,
   };
 
   return (

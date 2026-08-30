@@ -440,6 +440,11 @@ export function SettingsOverview({
       loading: false,
       subtitle: 'In-WhatsApp Product Catalog & Payment Instructions',
     },
+    {
+      section: 'payments',
+      loading: false,
+      subtitle: 'Connect payment gateways (MyFatoorah, Hesabe, …)',
+    },
   ];
 
   const tiles = rawTiles.filter((t) =>

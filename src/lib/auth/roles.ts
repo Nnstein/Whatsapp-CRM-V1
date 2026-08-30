@@ -133,6 +133,7 @@ export function canAccessSettingsSection(
     case 'api':
     case 'stores':
     case 'catalog':
+    case 'payments':
       return hasMinRole(role, 'admin');
     default:
       return false;

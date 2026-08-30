@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { engineSendText } from '@/lib/flows/meta-send';
 import { getStoreCheckoutUrl } from '@/lib/stores/checkout-url';
+import { getPaymentLink } from '@/lib/payments/payment-link';
 
 // ────────────────────────────────────────────────────────────
 // Intent patterns
@@ -637,20 +638,40 @@ async function handleCheckout(db: SupabaseClient, args: CartIntentArgs) {
 
   const total = items.reduce((s, item) => s + item.product_price * item.quantity, 0).toFixed(2);
 
-  // If a store with checkout-link support is connected, send a
-  // store-native checkout URL instead of manual payment instructions.
-  const checkout = await getStoreCheckoutUrl(db, args.accountId, {
-    items,
-    total: parseFloat(total),
-    currency,
-  });
+  // Load contact info for customer name / phone on payment gateway.
+  const { data: contact } = await db
+    .from('contacts')
+    .select('id, name, phone, email')
+    .eq('id', args.contactId)
+    .maybeSingle();
+
+  // 1. In-chat payment gateway link (MyFatoorah, Hesabe, etc.)
+  const paymentLink = await getPaymentLink(
+    db,
+    args.accountId,
+    { items, total: parseFloat(total), currency },
+    cart.id,
+    contact ?? { id: args.contactId },
+    args.conversationId,
+  );
+
+  // 2. Store checkout URL fallback if no payment link
+  const checkout = !paymentLink
+    ? await getStoreCheckoutUrl(db, args.accountId, {
+        items,
+        total: parseFloat(total),
+        currency,
+      })
+    : null;
+
+  const payUrl = paymentLink?.url ?? checkout?.url ?? null;
 
   const message = [
     '🛒 *Order Summary:*',
     lines,
     `\n*Total: ${currency} ${total}*`,
-    checkout ? `\n🔗 *Pay securely online:*\n${checkout.url}` : '',
-    !checkout && paymentNote ? `\n💳 *Payment instructions:*\n${paymentNote}` : '',
+    payUrl ? `\n🔗 *Pay securely online:*\n${payUrl}` : '',
+    !payUrl && paymentNote ? `\n💳 *Payment instructions:*\n${paymentNote}` : '',
     "\nThank you! We'll confirm your order once payment is received. 🙏",
   ].filter(Boolean).join('\n');
 
@@ -663,7 +684,7 @@ async function handleCheckout(db: SupabaseClient, args: CartIntentArgs) {
       status: 'checkout_sent',
       checkout_note: paymentNote || null,
       conversation_id: args.conversationId,
-      store_checkout_url: checkout?.url ?? null,
+      store_checkout_url: payUrl,
       store_connection_id: checkout?.connectionId ?? null,
     })
     .eq('id', cart.id);
