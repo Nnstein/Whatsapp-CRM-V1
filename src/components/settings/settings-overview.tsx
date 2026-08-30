@@ -430,6 +430,11 @@ export function SettingsOverview({
       loading: false,
       subtitle: 'Manage account API keys for external integrations',
     },
+    {
+      section: 'payments',
+      loading: false,
+      subtitle: 'Connect payment gateways (MyFatoorah, Hesabe, …)',
+    },
   ];
 
   const tiles = rawTiles.filter((t) =>

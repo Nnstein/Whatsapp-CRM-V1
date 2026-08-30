@@ -17,6 +17,7 @@ import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel'
 import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
+import { PaymentConnectors } from '@/components/settings/payment-connectors';
 import { canAccessSettingsSection } from '@/lib/auth/roles';
 import {
   resolveSection,
@@ -65,6 +66,7 @@ export default function SettingsPage() {
     deals: <DealsSettings />,
     members: <MembersTab />,
     api: <ApiKeysSettings />,
+    payments: <PaymentConnectors />,
   };
 
   return (

@@ -39,7 +39,7 @@ interface SendTextEngineArgs {
   /** Original author of the flow — used for INSERT audit columns
    *  and for resolving the agent's identity in logs. Not consulted
    *  for tenancy. */
-  userId: string
+  userId?: string | null
   conversationId: string
   contactId: string
   text: string
