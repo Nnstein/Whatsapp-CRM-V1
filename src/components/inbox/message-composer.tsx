@@ -394,6 +394,19 @@ export function MessageComposer({
     }
   }, [recording, recordSeconds, stopRecording]);
 
+  // Cancel recording on Escape key press.
+  useEffect(() => {
+    if (!recording) return;
+    const handleGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cancelRecording();
+      }
+    };
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [recording, cancelRecording]);
+
   // ---- Draft send / discard -----------------------------------------
 
   const sendDraft = useCallback(() => {
@@ -557,12 +570,6 @@ export function MessageComposer({
                 <Mic className="mr-2 h-4 w-4" />
                 Voice note
               </DropdownMenuItem>
-              {onOpenProducts && (
-                <DropdownMenuItem onClick={onOpenProducts}>
-                  <ShoppingBag className="mr-2 h-4 w-4" />
-                  Product Catalog
-                </DropdownMenuItem>
-              )}
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -572,8 +579,15 @@ export function MessageComposer({
               size="sm"
               canAct={!readOnly}
               gateReason="send messages"
-              title={readOnly ? undefined : "Send native WhatsApp product"}
-              className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+              disabled={inputsDisabled}
+              title={
+                readOnly
+                  ? undefined
+                  : sessionExpired
+                    ? "24-hour session expired - use a template"
+                    : "Send native WhatsApp product"
+              }
+              className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-foreground disabled:opacity-50"
               onClick={onOpenProducts}
             >
               <ShoppingBag className="h-4 w-4" />
@@ -597,9 +611,15 @@ export function MessageComposer({
             size="sm"
             canAct={!readOnly}
             gateReason="send messages"
-            disabled={drafting}
-            title={readOnly ? undefined : "Draft a reply with AI"}
-            className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-primary"
+            disabled={drafting || inputsDisabled}
+            title={
+              readOnly
+                ? undefined
+                : sessionExpired
+                  ? "24-hour session expired - use a template"
+                  : "Draft a reply with AI"
+            }
+            className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-primary disabled:opacity-50"
             onClick={handleDraft}
           >
             {drafting ? (
@@ -647,12 +667,12 @@ export function MessageComposer({
       )}
 
       {/* Hint sits outside the flex row so its height doesn't push
-          `items-end` buttons below the textarea. Indented to line up
-          under the textarea left edge. */}
+          `items-end` buttons below the textarea. */}
       {!draft && !recording && (
-        <p className="mt-1 pl-[5.5rem] text-[10px] text-muted-foreground">
-          Tap the ✨ to draft a reply with AI — you can edit it before sending
-        </p>
+        <div className="mt-1 flex items-center justify-between px-1 text-[10px] text-muted-foreground">
+          <span>Tap ✨ to draft a reply with AI (editable before sending)</span>
+          {text.length > 0 && <span>{text.length} chars</span>}
+        </div>
       )}
     </div>
   );

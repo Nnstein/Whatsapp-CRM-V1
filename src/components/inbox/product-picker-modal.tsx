@@ -55,11 +55,14 @@ export function ProductPickerModal({
       return;
     }
 
+    let isMounted = true;
+
     async function loadProducts() {
       setLoading(true);
       try {
         const res = await fetch("/api/catalog");
         const data = await res.json();
+        if (!isMounted) return;
         if (res.ok && Array.isArray(data.products)) {
           // Only show active products
           setProducts(data.products.filter((p: CatalogProduct) => p.is_active));
@@ -67,14 +70,21 @@ export function ProductPickerModal({
           toast.error("Failed to load catalog products");
         }
       } catch (err) {
+        if (!isMounted) return;
         console.error("Failed to fetch catalog:", err);
         toast.error("Error loading products");
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
 
     void loadProducts();
+
+    return () => {
+      isMounted = false;
+    };
   }, [open]);
 
   const filtered = useMemo(() => {
@@ -137,7 +147,7 @@ export function ProductPickerModal({
             <DialogTitle className="text-foreground text-lg">Send Native WhatsApp Product</DialogTitle>
           </div>
           <DialogDescription className="text-muted-foreground text-xs">
-            Send interactive WhatsApp product cards with images, prices, and an in-chat "Add to Cart" button.
+            Send interactive WhatsApp product cards with images, prices, and an in-chat &quot;Add to Cart&quot; button.
           </DialogDescription>
         </DialogHeader>
 
@@ -220,8 +230,16 @@ export function ProductPickerModal({
                 return (
                   <div
                     key={product.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => toggleSelect(product.id)}
-                    className={`flex items-start gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors text-left ${
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleSelect(product.id);
+                      }
+                    }}
+                    className={`flex items-start gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                       isSelected
                         ? "border-primary bg-primary/5 ring-1 ring-primary/30"
                         : "border-border bg-card/60 hover:bg-muted/40"
@@ -237,6 +255,7 @@ export function ProductPickerModal({
 
                     <div className="size-12 rounded-md bg-muted/60 shrink-0 border border-border overflow-hidden flex items-center justify-center">
                       {thumb ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
                         <img
                           src={thumb}
                           alt={product.name}
@@ -250,7 +269,7 @@ export function ProductPickerModal({
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-foreground truncate">{product.name}</p>
                       <p className="text-xs font-medium text-primary mt-0.5">
-                        {currency} {Number(product.price).toFixed(2)}
+                        {currency} {(Number(product.price) || 0).toFixed(2)}
                       </p>
                       <div className="flex items-center gap-1.5 mt-1">
                         {product.sku && (
