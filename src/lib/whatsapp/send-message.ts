@@ -25,6 +25,8 @@ import {
   sendTextMessage,
   sendTemplateMessage,
   sendMediaMessage,
+  sendSingleProduct,
+  sendProductList,
   type MediaKind,
 } from '@/lib/whatsapp/meta-api';
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption';
@@ -43,6 +45,8 @@ export const MEDIA_KINDS = ['image', 'video', 'document', 'audio'] as const;
 export const VALID_MESSAGE_TYPES = [
   'text',
   'template',
+  'product',
+  'product_list',
   ...MEDIA_KINDS,
 ] as const;
 
@@ -74,6 +78,10 @@ export interface SendMessageParams {
   templateParams?: string[];
   /** Structured template params (header/body/buttons). */
   templateMessageParams?: unknown;
+  /** Product IDs for native interactive product/product_list messages */
+  productIds?: string[];
+  headerText?: string | null;
+  footerText?: string | null;
   replyToMessageId?: string | null;
 }
 
@@ -104,8 +112,9 @@ export function validateSendMessageParams(params: {
   contentText?: string | null;
   mediaUrl?: string | null;
   templateName?: string | null;
+  productIds?: string[];
 }): void {
-  const { messageType, contentText, mediaUrl, templateName } = params;
+  const { messageType, contentText, mediaUrl, templateName, productIds } = params;
 
   if (!messageType) {
     throw new SendMessageError('bad_request', 'message_type is required', 400);
@@ -133,6 +142,30 @@ export function validateSendMessageParams(params: {
     throw new SendMessageError(
       'bad_request',
       'template_name is required for template messages',
+      400
+    );
+  }
+
+  if ((messageType === 'product' || messageType === 'product_list') && (!productIds || productIds.length === 0)) {
+    throw new SendMessageError(
+      'bad_request',
+      `product_ids array is required for ${messageType} messages`,
+      400
+    );
+  }
+
+  if (messageType === 'product' && productIds && productIds.length !== 1) {
+    throw new SendMessageError(
+      'bad_request',
+      'product message requires exactly 1 product ID',
+      400
+    );
+  }
+
+  if (messageType === 'product_list' && productIds && (productIds.length < 1 || productIds.length > 30)) {
+    throw new SendMessageError(
+      'bad_request',
+      'product_list message requires 1 to 30 product IDs',
       400
     );
   }
@@ -175,6 +208,9 @@ export async function sendMessageToConversation(
     templateLanguage,
     templateParams,
     templateMessageParams,
+    productIds,
+    headerText,
+    footerText,
     replyToMessageId,
   } = params;
 
@@ -186,7 +222,13 @@ export async function sendMessageToConversation(
     );
   }
 
-  validateSendMessageParams({ messageType, contentText, mediaUrl, templateName });
+  validateSendMessageParams({
+    messageType,
+    contentText,
+    mediaUrl,
+    templateName,
+    productIds,
+  });
 
   const isMediaKind = (MEDIA_KINDS as readonly string[]).includes(messageType);
 
@@ -367,6 +409,52 @@ export async function sendMessageToConversation(
       });
       return result.messageId;
     }
+    if (messageType === 'product') {
+      if (!config.meta_catalog_id) {
+        throw new SendMessageError(
+          'catalog_not_configured',
+          'Meta Catalog ID is not configured on this WhatsApp number. Please configure it in Settings → WhatsApp.',
+          400
+        );
+      }
+      const result = await sendSingleProduct({
+        phoneNumberId: config.phone_number_id,
+        accessToken,
+        to: phone,
+        catalogId: config.meta_catalog_id,
+        productRetailerId: productIds![0],
+        bodyText: contentText || undefined,
+        footerText: footerText || undefined,
+        contextMessageId,
+      });
+      return result.messageId;
+    }
+    if (messageType === 'product_list') {
+      if (!config.meta_catalog_id) {
+        throw new SendMessageError(
+          'catalog_not_configured',
+          'Meta Catalog ID is not configured on this WhatsApp number. Please configure it in Settings → WhatsApp.',
+          400
+        );
+      }
+      const result = await sendProductList({
+        phoneNumberId: config.phone_number_id,
+        accessToken,
+        to: phone,
+        catalogId: config.meta_catalog_id,
+        headerText: headerText || 'Product Catalog',
+        bodyText: contentText || 'Explore our products below:',
+        footerText: footerText || undefined,
+        sections: [
+          {
+            title: 'Featured Products',
+            productRetailerIds: productIds!,
+          },
+        ],
+        contextMessageId,
+      });
+      return result.messageId;
+    }
     const result = await sendTextMessage({
       phoneNumberId: config.phone_number_id,
       accessToken,
@@ -433,6 +521,18 @@ export async function sendMessageToConversation(
     }
   }
 
+  const dbContentType =
+    messageType === 'product' || messageType === 'product_list'
+      ? 'interactive'
+      : messageType;
+
+  const dbContentText =
+    messageType === 'product'
+      ? contentText || '[Product card]'
+      : messageType === 'product_list'
+      ? contentText || `[Product list (${productIds?.length ?? 0} items)]`
+      : finalContentText;
+
   // Persist the sent message. Field names MUST match the messages
   // schema (see 001_initial_schema.sql).
   const { data: messageRecord, error: msgError } = await db
@@ -440,8 +540,8 @@ export async function sendMessageToConversation(
     .insert({
       conversation_id: conversationId,
       sender_type: 'agent',
-      content_type: messageType,
-      content_text: finalContentText || null,
+      content_type: dbContentType,
+      content_text: dbContentText || null,
       media_url: mediaUrl || null,
       template_name: templateName || null,
       message_id: waMessageId,

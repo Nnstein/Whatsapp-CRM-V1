@@ -3,6 +3,8 @@ import {
   sendInteractiveList,
   sendMediaMessage,
   sendTextMessage,
+  sendSingleProduct,
+  sendProductList,
   type InteractiveButton,
   type InteractiveListSection,
   type MediaKind,
@@ -460,3 +462,128 @@ async function resolveConfigForAccountAndConversation(
 
   return config
 }
+
+export interface SendProductEngineArgs {
+  accountId: string
+  userId?: string | null
+  conversationId: string
+  contactId: string
+  productIds: string[]
+  metaCatalogId: string
+  headerText?: string
+  bodyText?: string
+  footerText?: string
+}
+
+/**
+ * Send a native single or multi-product message from the bot / AI engine.
+ */
+export async function engineSendProduct(
+  args: SendProductEngineArgs
+): Promise<{ whatsapp_message_id: string }> {
+  const db = supabaseAdmin()
+
+  const { data: contact, error: contactErr } = await db
+    .from('contacts')
+    .select('id, phone')
+    .eq('id', args.contactId)
+    .eq('account_id', args.accountId)
+    .maybeSingle()
+  if (contactErr || !contact?.phone) {
+    throw new Error('contact not found for this account')
+  }
+
+  const sanitized = sanitizePhoneForMeta(contact.phone)
+  if (!isValidE164(sanitized)) {
+    throw new Error(`contact phone invalid: ${contact.phone}`)
+  }
+
+  const config = await resolveConfigForAccountAndConversation(db, args.accountId, args.conversationId)
+  const accessToken = decrypt(config.access_token)
+
+  if (!args.metaCatalogId) {
+    throw new Error('Meta Catalog ID is required to send product messages')
+  }
+
+  const attempt = async (phone: string): Promise<string> => {
+    if (args.productIds.length === 1) {
+      const r = await sendSingleProduct({
+        phoneNumberId: config.phone_number_id,
+        accessToken,
+        to: phone,
+        catalogId: args.metaCatalogId,
+        productRetailerId: args.productIds[0],
+        bodyText: args.bodyText,
+        footerText: args.footerText,
+      })
+      return r.messageId
+    }
+    const r = await sendProductList({
+      phoneNumberId: config.phone_number_id,
+      accessToken,
+      to: phone,
+      catalogId: args.metaCatalogId,
+      headerText: args.headerText || 'Product Catalog',
+      bodyText: args.bodyText || 'Explore our featured products:',
+      footerText: args.footerText,
+      sections: [
+        {
+          title: 'Featured Products',
+          productRetailerIds: args.productIds.slice(0, 30),
+        },
+      ],
+    })
+    return r.messageId
+  }
+
+  const variants = phoneVariants(sanitized)
+  let workingPhone = sanitized
+  let waMessageId = ''
+  let lastError: unknown = null
+  for (const v of variants) {
+    try {
+      waMessageId = await attempt(v)
+      workingPhone = v
+      lastError = null
+      break
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (!isRecipientNotAllowedError(msg)) throw err
+      lastError = err
+    }
+  }
+  if (lastError) throw lastError
+
+  if (workingPhone !== sanitized) {
+    await db.from('contacts').update({ phone: workingPhone }).eq('id', contact.id)
+  }
+
+  const preview =
+    args.productIds.length === 1
+      ? '[Product Card]'
+      : `[Product Catalog (${args.productIds.length} items)]`
+
+  const { error: msgErr } = await db.from('messages').insert({
+    conversation_id: args.conversationId,
+    sender_type: 'bot',
+    content_type: 'interactive',
+    content_text: args.bodyText || preview,
+    message_id: waMessageId,
+    status: 'sent',
+  })
+  if (msgErr) {
+    throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
+  }
+
+  await db
+    .from('conversations')
+    .update({
+      last_message_text: preview,
+      last_message_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', args.conversationId)
+
+  return { whatsapp_message_id: waMessageId }
+}
+

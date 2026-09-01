@@ -5,7 +5,8 @@ import { retrieveKnowledge } from './knowledge'
 import { generateReply } from './generate'
 import { buildSystemPrompt } from './defaults'
 import { latestUserMessage } from './query'
-import { engineSendText } from '@/lib/flows/meta-send'
+import { engineSendText, engineSendProduct } from '@/lib/flows/meta-send'
+import { extractProductMentions, type ProductRef } from './product-suggest'
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -66,7 +67,7 @@ export async function dispatchInboundToAiReply(
 
     const { data: conv, error: convErr } = await db
       .from('conversations')
-      .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count')
+      .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count, whatsapp_config_id')
       .eq('id', conversationId)
       .maybeSingle()
     if (convErr || !conv) return
@@ -87,15 +88,16 @@ export async function dispatchInboundToAiReply(
       latestUserMessage(messages),
     )
 
-    // Load active products for catalog awareness (best-effort).
-    let catalogProducts: Array<{ name: string; price: number; currency: string; description?: string | null }> | null = null
+    // Load active products for catalog awareness and suggestion (best-effort).
+    let catalogProducts: ProductRef[] | null = null
     try {
       const { data: prods } = await db
         .from('catalog_products')
-        .select('name, price, currency, description, variants')
+        .select('id, name, price, currency, description, variants')
         .eq('account_id', accountId)
         .eq('is_active', true)
-        .limit(15)
+        .order('sort_order', { ascending: true })
+        .limit(30)
       catalogProducts = prods ?? null
     } catch {
       // Non-fatal catalog context query
@@ -155,6 +157,47 @@ export async function dispatchInboundToAiReply(
       return
     }
     if (claimed !== true) return // lost the per-conversation cap race
+
+    // Check if the AI's reply mentioned any products from the catalog
+    if (catalogProducts && catalogProducts.length > 0) {
+      const mentions = extractProductMentions(text, catalogProducts)
+      if (mentions.length > 0) {
+        // Resolve target WhatsApp config to check for meta_catalog_id
+        let targetConfig: { meta_catalog_id?: string | null } | null = null
+        if (conv.whatsapp_config_id) {
+          const { data: cfg } = await db
+            .from('whatsapp_config')
+            .select('meta_catalog_id')
+            .eq('id', conv.whatsapp_config_id)
+            .maybeSingle()
+          targetConfig = cfg
+        }
+        if (!targetConfig?.meta_catalog_id) {
+          const { data: cfg } = await db
+            .from('whatsapp_config')
+            .select('meta_catalog_id')
+            .eq('account_id', accountId)
+            .eq('is_default', true)
+            .maybeSingle()
+          targetConfig = cfg
+        }
+
+        if (targetConfig?.meta_catalog_id) {
+          try {
+            await engineSendProduct({
+              accountId,
+              userId: configOwnerUserId,
+              conversationId,
+              contactId,
+              productIds: mentions.map((m) => m.id),
+              metaCatalogId: targetConfig.meta_catalog_id,
+            })
+          } catch (productSendErr) {
+            console.warn('[ai auto-reply] Failed to send native product card (non-fatal):', productSendErr)
+          }
+        }
+      }
+    }
 
     await engineSendText({
       accountId,

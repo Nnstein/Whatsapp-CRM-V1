@@ -19,6 +19,8 @@ import {
   Check,
   ShieldCheck,
   FolderOpen,
+  ShoppingBag,
+  RefreshCw,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
@@ -72,7 +74,9 @@ export function WhatsAppConfig() {
   const [accessToken, setAccessToken] = useState('');
   const [verifyToken, setVerifyToken] = useState('');
   const [pin, setPin] = useState('');
+  const [metaCatalogId, setMetaCatalogId] = useState('');
   const [tokenEdited, setTokenEdited] = useState(false);
+  const [syncingCatalogId, setSyncingCatalogId] = useState<string | null>(null);
 
   // Inbox groups (migration 039): preset + custom vocabulary, and
   // the number currently being grouped in the picker dialog.
@@ -147,6 +151,7 @@ export function WhatsAppConfig() {
     setAccessToken('');
     setVerifyToken('');
     setPin('');
+    setMetaCatalogId('');
     setTokenEdited(true);
     setIsAdding(true);
   }
@@ -161,12 +166,44 @@ export function WhatsAppConfig() {
     setAccessToken(MASKED_TOKEN);
     setVerifyToken('');
     setPin('');
+    setMetaCatalogId(cfg.meta_catalog_id || '');
     setTokenEdited(false);
   }
 
   function cancelEdit() {
     setIsAdding(false);
     setEditingConfig(null);
+  }
+
+  async function handleSyncCatalog(configId?: string) {
+    try {
+      setSyncingCatalogId(configId || 'default');
+      const res = await fetch('/api/catalog/sync/meta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(configId ? { config_id: configId } : {}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to sync catalog to Meta');
+        return;
+      }
+      if (data.synced === 0 && data.total === 0) {
+        toast.info('No active catalog products found to sync.');
+      } else if (data.failed > 0) {
+        toast.warning(
+          `Synced ${data.synced} products to Meta (${data.failed} failed). Check console/logs for details.`
+        );
+      } else {
+        toast.success(`Successfully synced all ${data.synced} products to Meta Commerce Catalog! 🎉`);
+      }
+      if (accountId) fetchConfigs(accountId);
+    } catch (err) {
+      console.error('handleSyncCatalog error:', err);
+      toast.error('Network error while syncing catalog');
+    } finally {
+      setSyncingCatalogId(null);
+    }
   }
 
   async function handleSave() {
@@ -190,6 +227,7 @@ export function WhatsAppConfig() {
         waba_id: wabaId.trim() || null,
         verify_token: verifyToken.trim() || null,
         pin: pin.trim() || null,
+        meta_catalog_id: metaCatalogId.trim() || null,
       };
 
       if (tokenEdited && accessToken !== MASKED_TOKEN && accessToken.trim()) {
@@ -584,19 +622,50 @@ export function WhatsAppConfig() {
                           );
                         })()}
 
-                        <div className="flex justify-end pt-1">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleVerify(cfg.id)}
-                            disabled={verifyingId === cfg.id}
-                            className="h-7 text-xs border-border text-muted-foreground hover:text-foreground"
-                          >
-                            {verifyingId === cfg.id
-                              ? <Loader2 className="size-3 animate-spin mr-1" />
-                              : <ShieldCheck className="size-3 mr-1 text-primary" />}
-                            Verify with Meta
-                          </Button>
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/40">
+                          <div className="flex items-center gap-2 text-xs">
+                            {cfg.meta_catalog_id ? (
+                              <Badge variant="outline" className="border-primary/30 bg-primary/5 text-primary text-[10px] font-normal">
+                                <ShoppingBag className="size-3 mr-1" /> Catalog ID: {cfg.meta_catalog_id}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-[11px]">
+                                No Meta Catalog linked (native product cards disabled)
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {cfg.meta_catalog_id && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleSyncCatalog(cfg.id)}
+                                disabled={syncingCatalogId === cfg.id}
+                                className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10"
+                              >
+                                {syncingCatalogId === cfg.id ? (
+                                  <Loader2 className="size-3 animate-spin mr-1" />
+                                ) : (
+                                  <RefreshCw className="size-3 mr-1" />
+                                )}
+                                Sync Products to Meta
+                              </Button>
+                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleVerify(cfg.id)}
+                              disabled={verifyingId === cfg.id}
+                              className="h-7 text-xs border-border text-muted-foreground hover:text-foreground"
+                            >
+                              {verifyingId === cfg.id ? (
+                                <Loader2 className="size-3 animate-spin mr-1" />
+                              ) : (
+                                <ShieldCheck className="size-3 mr-1 text-primary" />
+                              )}
+                              Verify with Meta
+                            </Button>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
@@ -721,6 +790,30 @@ export function WhatsAppConfig() {
                   />
                   <p className="text-xs text-muted-foreground">
                     Needed to register inbound webhooks for production numbers under a shared WABA.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">
+                    Meta Commerce Catalog ID <span className="text-muted-foreground text-xs">(optional)</span>
+                  </Label>
+                  <Input
+                    placeholder="e.g. 102938475610293"
+                    value={metaCatalogId}
+                    onChange={(e) => setMetaCatalogId(e.target.value)}
+                    className="bg-muted border-border text-foreground font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    From{' '}
+                    <a
+                      href="https://business.facebook.com/commerce_manager"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      Meta Commerce Manager
+                    </a>
+                    . Enables native WhatsApp product cards (single & multi-product) with in-chat "Add to Cart".
                   </p>
                 </div>
 

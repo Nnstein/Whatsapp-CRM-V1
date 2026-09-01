@@ -189,7 +189,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { id, label, is_default, sort_order, phone_number_id, waba_id, access_token, verify_token, pin } = body
+    const { id, label, is_default, sort_order, phone_number_id, waba_id, access_token, verify_token, pin, meta_catalog_id } = body
 
     if (!access_token || !phone_number_id) {
       return NextResponse.json(
@@ -377,6 +377,7 @@ export async function POST(request: Request) {
       registered_at: registrationError ? null : registeredAt,
       subscribed_apps_at: subscribedAppsAt ?? null,
       last_registration_error: registrationError,
+      meta_catalog_id: typeof meta_catalog_id === 'string' ? meta_catalog_id.trim() || null : (existing?.meta_catalog_id ?? null),
       updated_at: new Date().toISOString(),
     }
 

@@ -75,6 +75,9 @@ export async function POST(request: Request) {
       template_language,
       template_params,
       template_message_params,
+      product_ids,
+      header_text,
+      footer_text,
       reply_to_message_id,
     } = body
 
@@ -97,6 +100,7 @@ export async function POST(request: Request) {
         contentText: content_text,
         mediaUrl: media_url,
         templateName: template_name,
+        productIds: product_ids,
       })
     } catch (err) {
       if (err instanceof SendMessageError) {
@@ -181,6 +185,9 @@ export async function POST(request: Request) {
         templateLanguage: template_language,
         templateParams: template_params,
         templateMessageParams: template_message_params,
+        productIds: product_ids,
+        headerText: header_text,
+        footerText: footer_text,
         replyToMessageId: reply_to_message_id,
       })
 

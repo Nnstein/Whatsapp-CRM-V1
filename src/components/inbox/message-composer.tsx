@@ -19,6 +19,7 @@ import {
   X,
   Loader2,
   Sparkles,
+  ShoppingBag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GatedButton } from "@/components/ui/gated-button";
@@ -97,6 +98,7 @@ interface MessageComposerProps {
   onSend: (text: string, replyToId?: string) => void;
   onSendMedia: (payload: SendMediaPayload) => void;
   onOpenTemplates: () => void;
+  onOpenProducts?: () => void;
   replyTo?: ReplyDraft | null;
   onClearReply?: () => void;
 }
@@ -118,6 +120,7 @@ export function MessageComposer({
   onSend,
   onSendMedia,
   onOpenTemplates,
+  onOpenProducts,
   replyTo,
   onClearReply,
 }: MessageComposerProps) {
@@ -554,8 +557,28 @@ export function MessageComposer({
                 <Mic className="mr-2 h-4 w-4" />
                 Voice note
               </DropdownMenuItem>
+              {onOpenProducts && (
+                <DropdownMenuItem onClick={onOpenProducts}>
+                  <ShoppingBag className="mr-2 h-4 w-4" />
+                  Product Catalog
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {onOpenProducts && (
+            <GatedButton
+              variant="ghost"
+              size="sm"
+              canAct={!readOnly}
+              gateReason="send messages"
+              title={readOnly ? undefined : "Send native WhatsApp product"}
+              className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+              onClick={onOpenProducts}
+            >
+              <ShoppingBag className="h-4 w-4" />
+            </GatedButton>
+          )}
 
           <GatedButton
             variant="ghost"

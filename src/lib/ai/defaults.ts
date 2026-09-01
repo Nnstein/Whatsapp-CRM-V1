@@ -175,8 +175,12 @@ export function buildSystemPrompt(args: {
       .join('\n')
     parts.push(
       'Available Product Catalog:\n' +
-        'Use this catalog to answer questions about products, prices, and options. ' +
-        'If a customer asks to buy or add a product, confirm the item and price politely and suggest checking out when ready.\n\n' +
+        'You have access to the product catalog below. Use it to:\n' +
+        '- Answer any customer questions about products, prices, variants, or availability.\n' +
+        '- Proactively recommend or suggest relevant products from this catalog (including upsells and cross-sells) when helpful.\n' +
+        '- Whenever you mention a specific product from the catalog, wrap its name in asterisks (e.g. *Product Name*) so our system can attach its interactive WhatsApp product card.\n' +
+        '- If a customer asks to buy or add a product, confirm the item and price politely and suggest checking out when ready.\n' +
+        '- IMPORTANT: Only recommend products from this catalog — never invent product names or prices.\n\n' +
         itemsText,
     )
   }

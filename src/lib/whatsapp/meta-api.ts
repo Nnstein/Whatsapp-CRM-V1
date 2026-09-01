@@ -1109,3 +1109,298 @@ export async function downloadMedia(
   const buffer = Buffer.from(await response.arrayBuffer())
   return { buffer, contentType }
 }
+
+// ============================================================
+// Commerce / Native WhatsApp Product Catalog
+// ============================================================
+
+export interface SendSingleProductArgs {
+  phoneNumberId: string
+  accessToken: string
+  to: string
+  catalogId: string
+  productRetailerId: string
+  bodyText?: string
+  footerText?: string
+  contextMessageId?: string
+}
+
+/**
+ * Send a native single-product interactive message.
+ * Renders a rich card with image, price, description and "Add to Cart" button.
+ */
+export async function sendSingleProduct(
+  args: SendSingleProductArgs,
+): Promise<MetaSendResult> {
+  const {
+    phoneNumberId,
+    accessToken,
+    to,
+    catalogId,
+    productRetailerId,
+    bodyText,
+    footerText,
+    contextMessageId,
+  } = args
+
+  if (!catalogId) throw new Error('sendSingleProduct requires a catalogId.')
+  if (!productRetailerId) throw new Error('sendSingleProduct requires a productRetailerId.')
+
+  const interactive: Record<string, unknown> = {
+    type: 'product',
+    action: {
+      catalog_id: catalogId,
+      product_retailer_id: productRetailerId,
+    },
+  }
+
+  if (bodyText) {
+    validateInteractiveBody(bodyText)
+    interactive.body = { text: bodyText }
+  }
+  if (footerText) {
+    validateInteractiveHeaderFooter(undefined, footerText)
+    interactive.footer = { text: footerText }
+  }
+
+  const body: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'interactive',
+    interactive,
+  }
+  if (contextMessageId) body.context = { message_id: contextMessageId }
+
+  const url = `${META_API_BASE}/${phoneNumberId}/messages`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  const data = await response.json()
+  return { messageId: data.messages[0].id }
+}
+
+export interface ProductListSection {
+  title: string
+  productRetailerIds: string[]
+}
+
+export interface SendProductListArgs {
+  phoneNumberId: string
+  accessToken: string
+  to: string
+  catalogId: string
+  headerText: string
+  bodyText: string
+  footerText?: string
+  sections: ProductListSection[]
+  contextMessageId?: string
+}
+
+/**
+ * Send a native multi-product interactive message (up to 30 products across sections).
+ */
+export async function sendProductList(
+  args: SendProductListArgs,
+): Promise<MetaSendResult> {
+  const {
+    phoneNumberId,
+    accessToken,
+    to,
+    catalogId,
+    headerText,
+    bodyText,
+    footerText,
+    sections,
+    contextMessageId,
+  } = args
+
+  if (!catalogId) throw new Error('sendProductList requires a catalogId.')
+  if (!headerText) throw new Error('sendProductList requires headerText.')
+  if (headerText.length > INTERACTIVE_LIMITS.headerTextMaxLength) {
+    throw new Error(`Product list header exceeds ${INTERACTIVE_LIMITS.headerTextMaxLength} chars.`)
+  }
+  validateInteractiveBody(bodyText)
+  validateInteractiveHeaderFooter(undefined, footerText)
+
+  if (!sections || sections.length === 0 || sections.length > 10) {
+    throw new Error('Product list requires 1-10 sections.')
+  }
+
+  const totalProducts = sections.reduce((sum, s) => sum + s.productRetailerIds.length, 0)
+  if (totalProducts < 1 || totalProducts > 30) {
+    throw new Error(`Product list requires 1-30 products total (got ${totalProducts}).`)
+  }
+
+  const interactive: Record<string, unknown> = {
+    type: 'product_list',
+    header: {
+      type: 'text',
+      text: headerText,
+    },
+    body: {
+      text: bodyText,
+    },
+    action: {
+      catalog_id: catalogId,
+      sections: sections.map((s) => ({
+        title: s.title,
+        product_items: s.productRetailerIds.map((id) => ({
+          product_retailer_id: id,
+        })),
+      })),
+    },
+  }
+
+  if (footerText) interactive.footer = { text: footerText }
+
+  const body: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'interactive',
+    interactive,
+  }
+  if (contextMessageId) body.context = { message_id: contextMessageId }
+
+  const url = `${META_API_BASE}/${phoneNumberId}/messages`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  const data = await response.json()
+  return { messageId: data.messages[0].id }
+}
+
+export interface SyncMetaProductItem {
+  retailer_id: string
+  name: string
+  description?: string | null
+  price: number
+  currency: string
+  image_url?: string | null
+  availability?: 'in stock' | 'out of stock'
+  condition?: 'new' | 'refurbished' | 'used'
+  brand?: string
+  category?: string
+  url?: string
+}
+
+export interface SyncProductToMetaCatalogArgs {
+  catalogId: string
+  accessToken: string
+  product: SyncMetaProductItem
+}
+
+/**
+ * Upsert a single product to a Meta Commerce Manager Catalog via Graph API.
+ */
+export async function syncProductToMetaCatalog(
+  args: SyncProductToMetaCatalogArgs,
+): Promise<{ id?: string; success: boolean }> {
+  const { catalogId, accessToken, product } = args
+
+  const payload: Record<string, unknown> = {
+    retailer_id: product.retailer_id,
+    name: product.name,
+    description: product.description || product.name,
+    availability: product.availability || 'in stock',
+    condition: product.condition || 'new',
+    price: Math.round(product.price * 100), // in cents
+    currency: product.currency || 'SAR',
+    image_url: product.image_url || 'https://placehold.co/600x600/png?text=Product',
+  }
+  if (product.brand) payload.brand = product.brand
+  if (product.category) payload.category = product.category
+  if (product.url) payload.url = product.url
+
+  const url = `${META_API_BASE}/${catalogId}/products`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    await throwMetaError(response, `Meta Catalog Sync error: ${response.status}`)
+  }
+
+  const data = await response.json().catch(() => ({}))
+  return { id: data.id ? String(data.id) : undefined, success: true }
+}
+
+export interface SyncProductBatchArgs {
+  catalogId: string
+  accessToken: string
+  requests: Array<{
+    method: 'CREATE' | 'UPDATE' | 'DELETE'
+    retailer_id: string
+    data: {
+      name: string
+      description?: string
+      availability: 'in stock' | 'out of stock'
+      condition: 'new' | 'refurbished' | 'used'
+      price: number // in cents
+      currency: string
+      image_url: string
+      url?: string
+      brand?: string
+      category?: string
+    }
+  }>
+}
+
+/**
+ * Batch upsert products to Meta Commerce Catalog via /{catalog_id}/batch.
+ * Meta accepts up to 4999 items in one batch request.
+ */
+export async function syncProductBatchToMetaCatalog(
+  args: SyncProductBatchArgs,
+): Promise<{ handles?: string[]; errors?: any[] }> {
+  const { catalogId, accessToken, requests } = args
+  const url = `${META_API_BASE}/${catalogId}/batch`
+
+  const payload = {
+    requests: requests.map((r) => ({
+      method: r.method,
+      retailer_id: r.retailer_id,
+      data: r.data,
+    })),
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    await throwMetaError(response, `Meta Catalog Batch error: ${response.status}`)
+  }
+
+  return response.json()
+}
+

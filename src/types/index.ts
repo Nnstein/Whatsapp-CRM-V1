@@ -285,6 +285,31 @@ export interface WhatsAppConfig {
   subscribed_apps_at?: string;
   /** Last error from /register; cleared on success. */
   last_registration_error?: string;
+  /** Meta Commerce Manager Catalog ID for WhatsApp product messages */
+  meta_catalog_id?: string | null;
+}
+
+export interface CatalogProduct {
+  id: string;
+  account_id?: string;
+  sku?: string | null;
+  name: string;
+  description: string | null;
+  price: number;
+  currency: string;
+  quantity?: string;
+  categories?: string[];
+  image_url: string | null;
+  images?: string[];
+  variants: Array<{ label: string; price_modifier?: number }>;
+  tags: string[];
+  is_active: boolean;
+  sort_order: number;
+  store_connection_id?: string | null;
+  external_product_id?: string | null;
+  meta_synced_at?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 /**

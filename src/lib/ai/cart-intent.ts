@@ -18,7 +18,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
-import { engineSendText } from '@/lib/flows/meta-send';
+import { engineSendText, engineSendProduct } from '@/lib/flows/meta-send';
 import { getStoreCheckoutUrl } from '@/lib/stores/checkout-url';
 import { getPaymentLink } from '@/lib/payments/payment-link';
 
@@ -373,7 +373,59 @@ async function handleBrowseCatalog(db: SupabaseClient, args: CartIntentArgs) {
     return;
   }
 
-  // Use workspace default currency rather than per-product currency
+  // Check if target WhatsApp config has meta_catalog_id configured
+  const { data: conv } = await db
+    .from('conversations')
+    .select('whatsapp_config_id')
+    .eq('id', args.conversationId)
+    .maybeSingle();
+
+  let targetConfig: { meta_catalog_id?: string | null } | null = null;
+  if (conv?.whatsapp_config_id) {
+    const { data: cfg } = await db
+      .from('whatsapp_config')
+      .select('meta_catalog_id')
+      .eq('id', conv.whatsapp_config_id)
+      .maybeSingle();
+    targetConfig = cfg;
+  }
+  if (!targetConfig?.meta_catalog_id) {
+    const { data: cfg } = await db
+      .from('whatsapp_config')
+      .select('meta_catalog_id')
+      .eq('account_id', args.accountId)
+      .eq('is_default', true)
+      .maybeSingle();
+    targetConfig = cfg;
+  }
+
+  const productIds = products.map((p: any) => p.id);
+
+  if (targetConfig?.meta_catalog_id) {
+    try {
+      await engineSendProduct({
+        accountId: args.accountId,
+        userId: args.configOwnerUserId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        productIds: productIds.slice(0, 30),
+        metaCatalogId: targetConfig.meta_catalog_id,
+        headerText: 'Our Products',
+        bodyText: 'Tap below to explore our products and add items directly to your cart! 🛍️',
+      });
+
+      // Persist the shown order so "I want number 2" resolves correctly on follow-up.
+      await db
+        .from('conversations')
+        .update({ last_catalog_product_ids: productIds })
+        .eq('id', args.conversationId);
+      return;
+    } catch (err) {
+      console.warn('[cart-intent] Failed to send native product list (falling back to text):', err);
+    }
+  }
+
+  // Text list fallback when meta_catalog_id is not configured
   const { data: accountRow } = await db
     .from('accounts')
     .select('default_currency')
@@ -395,7 +447,6 @@ async function handleBrowseCatalog(db: SupabaseClient, args: CartIntentArgs) {
   );
 
   // Persist the shown order so "I want number 2" resolves correctly on follow-up.
-  const productIds = products.map((p: any) => p.id);
   await db
     .from('conversations')
     .update({ last_catalog_product_ids: productIds })

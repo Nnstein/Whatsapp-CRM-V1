@@ -3,6 +3,8 @@ import {
   INTERACTIVE_LIMITS,
   sendInteractiveButtons,
   sendInteractiveList,
+  sendSingleProduct,
+  sendProductList,
 } from "./meta-api";
 
 // All assertions in this file run BEFORE the network call. We stub fetch
@@ -267,3 +269,168 @@ describe("sendInteractiveList — validation", () => {
     });
   });
 });
+
+describe("sendSingleProduct — validation & payload", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn(neverFetch));
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects missing catalogId", async () => {
+    await expect(
+      sendSingleProduct({
+        ...BASE_ARGS,
+        catalogId: "",
+        productRetailerId: "prod-1",
+      }),
+    ).rejects.toThrow(/requires a catalogId/);
+  });
+
+  it("rejects missing productRetailerId", async () => {
+    await expect(
+      sendSingleProduct({
+        ...BASE_ARGS,
+        catalogId: "cat-1",
+        productRetailerId: "",
+      }),
+    ).rejects.toThrow(/requires a productRetailerId/);
+  });
+
+  it("shapes a single product message payload correctly", async () => {
+    let captured: { url: string; body: any } | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        captured = { url, body: JSON.parse(init?.body as string) };
+        return new Response(
+          JSON.stringify({ messages: [{ id: "wamid.PROD_SINGLE" }] }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }),
+    );
+
+    const result = await sendSingleProduct({
+      ...BASE_ARGS,
+      catalogId: "cat_123",
+      productRetailerId: "prod_456",
+      bodyText: "Check out this item!",
+      footerText: "Tap to view",
+    });
+
+    expect(result).toEqual({ messageId: "wamid.PROD_SINGLE" });
+    expect(captured).not.toBeNull();
+    expect(captured!.body).toMatchObject({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      type: "interactive",
+      interactive: {
+        type: "product",
+        body: { text: "Check out this item!" },
+        footer: { text: "Tap to view" },
+        action: {
+          catalog_id: "cat_123",
+          product_retailer_id: "prod_456",
+        },
+      },
+    });
+  });
+});
+
+describe("sendProductList — validation & payload", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn(neverFetch));
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects missing headerText", async () => {
+    await expect(
+      sendProductList({
+        ...BASE_ARGS,
+        catalogId: "cat-1",
+        headerText: "",
+        sections: [{ title: "Featured", productRetailerIds: ["p1"] }],
+      }),
+    ).rejects.toThrow(/requires headerText/);
+  });
+
+  it("rejects empty sections", async () => {
+    await expect(
+      sendProductList({
+        ...BASE_ARGS,
+        catalogId: "cat-1",
+        headerText: "Catalog",
+        sections: [],
+      }),
+    ).rejects.toThrow(/requires 1-10 sections/);
+  });
+
+  it("rejects total products > 30", async () => {
+    const ids = Array.from({ length: 31 }, (_, i) => `p_${i}`);
+    await expect(
+      sendProductList({
+        ...BASE_ARGS,
+        catalogId: "cat-1",
+        headerText: "Catalog",
+        sections: [{ title: "All", productRetailerIds: ids }],
+      }),
+    ).rejects.toThrow(/requires 1-30 products total/);
+  });
+
+  it("shapes a product list message payload correctly", async () => {
+    let captured: { url: string; body: any } | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        captured = { url, body: JSON.parse(init?.body as string) };
+        return new Response(
+          JSON.stringify({ messages: [{ id: "wamid.PROD_LIST" }] }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }),
+    );
+
+    const result = await sendProductList({
+      ...BASE_ARGS,
+      catalogId: "cat_999",
+      headerText: "Our Catalog",
+      bodyText: "Explore our collection",
+      footerText: "Free delivery available",
+      sections: [
+        {
+          title: "Makeup",
+          productRetailerIds: ["p_1", "p_2"],
+        },
+      ],
+    });
+
+    expect(result).toEqual({ messageId: "wamid.PROD_LIST" });
+    expect(captured).not.toBeNull();
+    expect(captured!.body).toMatchObject({
+      messaging_product: "whatsapp",
+      type: "interactive",
+      interactive: {
+        type: "product_list",
+        header: { type: "text", text: "Our Catalog" },
+        body: { text: "Explore our collection" },
+        footer: { text: "Free delivery available" },
+        action: {
+          catalog_id: "cat_999",
+          sections: [
+            {
+              title: "Makeup",
+              product_items: [
+                { product_retailer_id: "p_1" },
+                { product_retailer_id: "p_2" },
+              ],
+            },
+          ],
+        },
+      },
+    });
+  });
+});
+

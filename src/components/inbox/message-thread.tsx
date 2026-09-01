@@ -47,6 +47,7 @@ import {
 } from "./message-composer";
 import { deleteAccountMedia } from "@/lib/storage/upload-media";
 import { TemplatePicker } from "./template-picker";
+import { ProductPickerModal } from "./product-picker-modal";
 import { buildReplyPreview } from "./reply-quote";
 import { toast } from "sonner";
 
@@ -165,6 +166,7 @@ export function MessageThread({
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [productModalOpen, setProductModalOpen] = useState(false);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
   // Purely visual spin state for the manual-refresh button. The actual
@@ -595,6 +597,65 @@ export function MessageThread({
   const handleOpenTemplates = useCallback(() => {
     setTemplateModalOpen(true);
   }, []);
+
+  const handleOpenProducts = useCallback(() => {
+    setProductModalOpen(true);
+  }, []);
+
+  const handleSendProduct = useCallback(
+    async (productIds: string[], note?: string) => {
+      if (!conversation || productIds.length === 0) return;
+
+      const isSingle = productIds.length === 1;
+      const messageType = isSingle ? "product" : "product_list";
+      const tempId = `temp-${Date.now()}`;
+      const preview = isSingle
+        ? note || "[Product Card]"
+        : note || `[Product Catalog (${productIds.length} items)]`;
+
+      const optimisticMsg: Message = {
+        id: tempId,
+        conversation_id: conversation.id,
+        sender_type: "agent",
+        content_type: "interactive",
+        content_text: preview,
+        status: "sending",
+        created_at: new Date().toISOString(),
+      };
+      onNewMessage(optimisticMsg);
+
+      try {
+        const res = await fetch("/api/whatsapp/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversation_id: conversation.id,
+            message_type: messageType,
+            product_ids: productIds,
+            content_text: note || null,
+          }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          const reason = data?.error || `HTTP ${res.status}`;
+          console.error("Failed to send product message:", reason);
+          toast.error(`Failed to send: ${reason}`);
+          onUpdateMessage(tempId, { status: "failed" });
+          return;
+        }
+
+        onUpdateMessage(tempId, { status: "sent" });
+      } catch (err) {
+        console.error("Failed to send product message:", err);
+        const reason = err instanceof Error ? err.message : "network error";
+        toast.error(`Failed to send: ${reason}`);
+        onUpdateMessage(tempId, { status: "failed" });
+      }
+    },
+    [conversation, onNewMessage, onUpdateMessage]
+  );
 
   const handleSendTemplate = useCallback(
     async (
@@ -1087,6 +1148,7 @@ export function MessageThread({
         onSend={handleSend}
         onSendMedia={handleSendMedia}
         onOpenTemplates={handleOpenTemplates}
+        onOpenProducts={handleOpenProducts}
         replyTo={
           replyTo
             ? { id: replyTo.id, authorLabel: replyTo.authorLabel, preview: replyTo.preview }
@@ -1101,6 +1163,13 @@ export function MessageThread({
         onOpenChange={setTemplateModalOpen}
         onSelect={handleSendTemplate}
         contact={contact}
+      />
+
+      {/* Product picker modal */}
+      <ProductPickerModal
+        open={productModalOpen}
+        onOpenChange={setProductModalOpen}
+        onSend={handleSendProduct}
       />
     </div>
   );
