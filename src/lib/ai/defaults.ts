@@ -155,6 +155,7 @@ export function buildSystemPrompt(args: {
     parts.push(`Business context and instructions:\n${userPrompt.trim()}`)
   }
 
+
   if (knowledge && knowledge.length > 0) {
     const fallback =
       mode === 'auto_reply'

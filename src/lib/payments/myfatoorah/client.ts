@@ -115,13 +115,61 @@ export async function testMyFatoorahConnection(
 }
 
 /**
+ * Parse an E.164 or raw phone string into MyFatoorah's MobileCountryCode (+XXX)
+ * and CustomerMobile (national number without leading zeros or country code).
+ *
+ * MyFatoorah enforces:
+ * - CustomerMobile: english digits only, length 3-11 characters
+ * - MobileCountryCode: e.g. "+965", "+966", etc.
+ *
+ * If the number cannot be reliably matched to a country code and valid national
+ * length, returns null so we omit MobileCountryCode/CustomerMobile entirely
+ * (for NotificationOption: 'LNK', they are optional and omitting them prevents
+ * 400 "Invalid data" failures).
+ */
+export function parseCustomerMobile(phone?: string | null): {
+  mobileCountryCode: string;
+  customerMobile: string;
+} | null {
+  if (!phone) return null;
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 7 || digits.length > 15) return null;
+
+  const PREFIXES: Array<{ code: string; prefix: string; minLen: number; maxLen: number }> = [
+    { code: '+965', prefix: '965', minLen: 7, maxLen: 8 },  // Kuwait: 8 digits
+    { code: '+966', prefix: '966', minLen: 8, maxLen: 9 },  // Saudi: 9 digits
+    { code: '+971', prefix: '971', minLen: 8, maxLen: 9 },  // UAE: 9 digits
+    { code: '+974', prefix: '974', minLen: 7, maxLen: 8 },  // Qatar: 8 digits
+    { code: '+973', prefix: '973', minLen: 7, maxLen: 8 },  // Bahrain: 8 digits
+    { code: '+968', prefix: '968', minLen: 7, maxLen: 8 },  // Oman: 8 digits
+    { code: '+962', prefix: '962', minLen: 8, maxLen: 9 },  // Jordan: 9 digits
+    { code: '+20',  prefix: '20',  minLen: 9, maxLen: 10 }, // Egypt: 10 digits
+    { code: '+44',  prefix: '44',  minLen: 9, maxLen: 10 }, // UK: 10 digits
+    { code: '+1',   prefix: '1',   minLen: 10, maxLen: 10 }, // US/Canada: 10 digits
+  ];
+
+  for (const { code, prefix, minLen, maxLen } of PREFIXES) {
+    if (digits.startsWith(prefix)) {
+      const national = digits.slice(prefix.length).replace(/^0+/, '');
+      if (national.length >= minLen && national.length <= maxLen && national.length <= 11) {
+        return { mobileCountryCode: code, customerMobile: national };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Create a payment link via MyFatoorah SendPayment.
  *
  * Uses NotificationOption: 'LNK' — returns the InvoiceURL only,
  * without sending any email/SMS from MyFatoorah's side. We send the link
  * to the customer ourselves via WhatsApp.
  *
- * Throws on network/API errors so the caller can catch and handle.
+ * Resilient: if optional fields (phone, items) cause a validation error,
+ * automatically retries with a streamlined payload so the customer always
+ * receives their payment link.
  */
 export async function createMyFatoorahPaymentLink(
   credentials: MyFatoorahCredentials,
@@ -133,40 +181,92 @@ export async function createMyFatoorahPaymentLink(
   const payload: Record<string, unknown> = {
     NotificationOption: 'LNK',
     InvoiceValue: req.amount,
-    CustomerName: req.customerName,
+    CustomerName: req.customerName ? req.customerName.slice(0, 100) : 'Customer',
     DisplayCurrencyIso: req.currency,
     CallBackUrl: req.callbackUrl,
     ErrorUrl: req.errorUrl,
     Language: 'en',
   };
 
-  if (req.customerPhone) payload.MobileCountryCode = '+965'; // TODO: derive from phone
-  if (req.customerPhone) payload.CustomerMobile = req.customerPhone.replace(/^\+/, '');
-  if (req.customerEmail) payload.CustomerEmail = req.customerEmail;
-  if (req.customerReference) payload.CustomerReference = req.customerReference;
+  const parsedMobile = parseCustomerMobile(req.customerPhone);
+  if (parsedMobile) {
+    payload.MobileCountryCode = parsedMobile.mobileCountryCode;
+    payload.CustomerMobile = parsedMobile.customerMobile;
+  }
 
-  if (req.items && req.items.length > 0) {
+  if (req.customerEmail && req.customerEmail.includes('@')) {
+    payload.CustomerEmail = req.customerEmail.trim();
+  }
+  if (req.customerReference) {
+    payload.CustomerReference = req.customerReference;
+  }
+
+  // Only attach InvoiceItems if the sum of items strictly matches the total InvoiceValue,
+  // preventing MyFatoorah decimal mismatch rejection
+  const itemsTotal = (req.items ?? []).reduce((acc, it) => acc + (it.unitPrice * it.quantity), 0);
+  if (req.items && req.items.length > 0 && Math.abs(itemsTotal - req.amount) < 0.01) {
     payload.InvoiceItems = req.items.map((item) => ({
-      ItemName: item.name,
-      Quantity: item.quantity,
-      UnitPrice: item.unitPrice,
+      ItemName: item.name.slice(0, 100),
+      Quantity: Math.max(1, Math.round(item.quantity)),
+      UnitPrice: Number(item.unitPrice.toFixed(3)),
     }));
   }
 
-  const response = await fetch(`${base}/v2/SendPayment`, {
+  let response = await fetch(`${base}/v2/SendPayment`, {
     method: 'POST',
     headers: authHeaders(api_key),
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(15_000),
   });
 
-  const body = (await response.json()) as Record<string, unknown>;
+  let body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+  // If the initial request failed with "Invalid data" or other client error,
+  // retry with minimal safe payload (essential fields only)
+  if (!response.ok || body.IsSuccess !== true) {
+    const errorMsg = String((body as { Message?: string }).Message ?? '');
+    const valErrors = Array.isArray(body.ValidationErrors)
+      ? (body.ValidationErrors as Array<{ Name?: string; Error?: string }>)
+          .map((v) => `${v.Name ?? 'Field'}: ${v.Error ?? 'invalid'}`)
+          .join('; ')
+      : '';
+
+    console.warn(
+      `[myfatoorah] SendPayment initial call failed: ${errorMsg} (${valErrors}). Retrying with minimal payload...`,
+    );
+
+    const minimalPayload: Record<string, unknown> = {
+      NotificationOption: 'LNK',
+      InvoiceValue: req.amount,
+      CustomerName: req.customerName ? req.customerName.slice(0, 100) : 'Customer',
+      DisplayCurrencyIso: req.currency,
+      CallBackUrl: req.callbackUrl,
+      ErrorUrl: req.errorUrl,
+      Language: 'en',
+    };
+
+    response = await fetch(`${base}/v2/SendPayment`, {
+      method: 'POST',
+      headers: authHeaders(api_key),
+      body: JSON.stringify(minimalPayload),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  }
 
   if (!response.ok || body.IsSuccess !== true) {
-    const msg = String(
+    const valErrors = Array.isArray(body.ValidationErrors)
+      ? (body.ValidationErrors as Array<{ Name?: string; Error?: string }>)
+          .map((v) => `${v.Name ?? 'Field'}: ${v.Error ?? 'invalid'}`)
+          .join('; ')
+      : '';
+    const mainMsg = String(
       (body as { Message?: string }).Message ?? `MyFatoorah SendPayment HTTP ${response.status}`,
     );
-    throw new Error(msg);
+    const fullMsg = valErrors ? `${mainMsg} [ValidationErrors: ${valErrors}]` : mainMsg;
+    console.error('[myfatoorah] SendPayment failed. Response:', JSON.stringify(body));
+    throw new Error(fullMsg);
   }
 
   const data = (body.Data ?? {}) as Record<string, unknown>;

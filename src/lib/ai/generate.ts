@@ -59,9 +59,18 @@ export async function generateReply(args: GenerateArgs): Promise<GenerateResult>
  * Split the raw model output into `{ text, handoff }`. The sentinel can
  * appear alone or trailing a partial reply; either way we treat the
  * turn as a handoff and strip the marker from any remaining text.
+ * Also cleans reasoning tags (<think>...</think>) and any leaked prompt prefixes.
  */
 export function parseGeneration(raw: string): GenerateResult {
-  const handoff = raw.includes(HANDOFF_SENTINEL)
-  const text = raw.split(HANDOFF_SENTINEL).join('').trim()
+  // Strip reasoning tags from models like DeepSeek R1, Qwen, etc.
+  let cleaned = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+
+  const handoff = cleaned.includes(HANDOFF_SENTINEL)
+  let text = cleaned.split(HANDOFF_SENTINEL).join('').trim()
+
+  // Clean prompt leak residue if the model quoted system instructions
+  text = text.replace(/^[^\n]*?(?:interactive WhatsApp product card|so our system can attach)[^\n]*\n*/i, '').trim()
+  text = text.replace(/^\s*\*\s*So use:[^\n]*\n*/i, '').trim()
+
   return { text, handoff }
 }
