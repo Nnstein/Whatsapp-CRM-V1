@@ -9,7 +9,8 @@ import {
 } from "@/lib/inbox/conversations";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus, Tag } from "@/types";
-import { Search, ChevronDown, X } from "lucide-react";
+import { Search, ChevronDown, X, Bot, UserRound } from "lucide-react";
+import { getEffectiveHandler } from "@/lib/inbox/handling-mode";
 import { formatDistanceToNow } from "date-fns";
 import { Input } from "@/components/ui/input";
 import {
@@ -672,6 +673,18 @@ function ConversationItem({
               <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
                 {conversation.unread_count}
               </span>
+            )}
+            {/* AI/Human handler indicator — who is expected to reply. */}
+            {getEffectiveHandler(conversation) === "ai" ? (
+              <Bot
+                className="h-3 w-3 shrink-0 text-primary"
+                aria-label="Handled by AI"
+              />
+            ) : (
+              <UserRound
+                className="h-3 w-3 shrink-0 text-amber-500"
+                aria-label="Handled by a human"
+              />
             )}
             {/* 24h window status indicator */}
             <span

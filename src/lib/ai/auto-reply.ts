@@ -67,12 +67,16 @@ export async function dispatchInboundToAiReply(
 
     const { data: conv, error: convErr } = await db
       .from('conversations')
-      .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count, whatsapp_config_id')
+      .select('assigned_agent_id, ai_autoreply_disabled, handling_mode, ai_reply_count, whatsapp_config_id')
       .eq('id', conversationId)
       .maybeSingle()
     if (convErr || !conv) return
     if (conv.assigned_agent_id) return // a human owns this thread
-    if (conv.ai_autoreply_disabled) return // handed off / turned off here
+    // handling_mode (migration 046) is the sticky AI/human gate; the legacy
+    // ai_autoreply_disabled flag is kept in sync but no longer authoritative.
+    const effectiveMode = (conv as { handling_mode?: string }).handling_mode
+      ?? ((conv as { ai_autoreply_disabled?: boolean }).ai_autoreply_disabled ? 'human' : 'ai')
+    if (effectiveMode !== 'ai') return // handed off / turned off here
     // Cheap early-out; the authoritative cap check is the atomic claim
     // below (this read can race a concurrent inbound).
     if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
@@ -121,7 +125,7 @@ export async function dispatchInboundToAiReply(
       // this thread, flip status to pending, and send handoff notification.
       await db
         .from('conversations')
-        .update({ status: 'pending', ai_autoreply_disabled: true })
+        .update({ status: 'pending', handling_mode: 'human', ai_autoreply_disabled: true })
         .eq('id', conversationId)
 
       try {

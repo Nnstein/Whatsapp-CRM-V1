@@ -8,6 +8,7 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchCartIntent } from '@/lib/ai/cart-intent'
+import { dispatchHandoffIntent } from '@/lib/ai/handoff-intent'
 import { dispatchContactEnrichment } from '@/lib/ai/extract-contact'
 import { detectLanguageFromText } from '@/lib/i18n/language-detector'
 import { loadAiConfig } from '@/lib/ai/config'
@@ -818,12 +819,28 @@ async function processMessage(
     })
   }
 
+  // Human-handoff intent. When the customer explicitly asks for a
+  // person ("talk to an agent" / "موظف" / "agent se baat"), switch the
+  // conversation to human handling BEFORE the LLM gets a chance to
+  // reply, confirm to the customer, and notify the team. Skipped when a
+  // flow or the cart bot already consumed the message.
+  let handoffHandled = false
+  if (!flowConsumed && !interactiveReplyId && !cartHandled && inboundText.trim()) {
+    handoffHandled = await dispatchHandoffIntent({
+      accountId,
+      contactId: contactRecord.id,
+      conversationId: conversation.id,
+      configOwnerUserId,
+      inboundText,
+    })
+  }
+
   // AI auto-reply. Runs only for plain-text inbound the deterministic
   // flow runner did NOT consume (flows win over the LLM), only when the
-  // cart intent layer didn't already handle it, and only when the
-  // account has enabled it. `dispatchInboundToAiReply` owns its
+  // cart intent and handoff layers didn't already handle it, and only
+  // when the account has enabled it. `dispatchInboundToAiReply` owns its
   // eligibility gates + try/catch and never throws.
-  if (!flowConsumed && !interactiveReplyId && !cartHandled && inboundText.trim()) {
+  if (!flowConsumed && !interactiveReplyId && !cartHandled && !handoffHandled && inboundText.trim()) {
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,

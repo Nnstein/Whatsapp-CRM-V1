@@ -26,6 +26,8 @@ import {
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
+  Bot,
+  UserRound,
 } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
 import { renderTemplateBody } from "@/lib/whatsapp/template-validators";
@@ -49,6 +51,7 @@ import { deleteAccountMedia } from "@/lib/storage/upload-media";
 import { TemplatePicker } from "./template-picker";
 import { ProductPickerModal } from "./product-picker-modal";
 import { buildReplyPreview } from "./reply-quote";
+import { getEffectiveHandler } from "@/lib/inbox/handling-mode";
 import { toast } from "sonner";
 
 interface ReplyDraft {
@@ -70,6 +73,11 @@ interface MessageThreadProps {
     conversationId: string,
     assignedAgentId: string | null,
   ) => void;
+  /**
+   * Fired when the AI/Human toggle flips who handles the conversation.
+   * The parent mirrors the new mode into its conversation state.
+   */
+  onHandlingModeChange?: (conversationId: string, mode: "ai" | "human") => void;
   /**
    * On mobile, the thread is shown full-screen with the conversation list
    * hidden. This callback lets the page deselect the active conversation
@@ -155,6 +163,7 @@ export function MessageThread({
   onUpdateMessage,
   onStatusChange,
   onAssignChange,
+  onHandlingModeChange,
   onBack,
   resyncToken = 0,
   onRefresh,
@@ -873,6 +882,47 @@ export function MessageThread({
     [conversation, onAssignChange],
   );
 
+  // AI/Human ownership toggle. Flipping to 'human' makes the bot stand
+  // down (sticky until flipped back); flipping to 'ai' hands the thread
+  // back to the auto-reply bot and clears any assignment so it actually
+  // resumes. See /api/conversations/[id]/handling-mode.
+  const [togglingMode, setTogglingMode] = useState(false);
+  const effectiveHandler = conversation
+    ? getEffectiveHandler(conversation)
+    : "ai";
+
+  const handleToggleHandlingMode = useCallback(async () => {
+    if (!conversation || togglingMode) return;
+    const nextMode = effectiveHandler === "ai" ? "human" : "ai";
+    setTogglingMode(true);
+    try {
+      const res = await fetch(
+        `/api/conversations/${conversation.id}/handling-mode`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: nextMode }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+      toast.success(
+        nextMode === "human"
+          ? "AI paused — a human now owns this conversation"
+          : "AI resumed — the bot will reply to new messages"
+      );
+      onHandlingModeChange?.(conversation.id, nextMode);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to switch handler"
+      );
+    } finally {
+      setTogglingMode(false);
+    }
+  }, [conversation, effectiveHandler, togglingMode, onHandlingModeChange]);
+
   // Empty state — same WhatsApp-style doodle background as the active
   // thread below, so swapping between empty/selected doesn't change the
   // pattern under the user's eye.
@@ -997,6 +1047,38 @@ export function MessageThread({
               <RefreshCw
                 className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")}
               />
+            </button>
+          )}
+
+          {/* AI/Human handler indicator + toggle. Shows who is expected
+              to reply right now — the auto-reply bot (AI) or a person
+              (handed off / assigned). Clicking flips ownership; the
+              confirmation toast explains what changed. */}
+          {onHandlingModeChange && (
+            <button
+              type="button"
+              onClick={handleToggleHandlingMode}
+              disabled={togglingMode}
+              title={
+                effectiveHandler === "ai"
+                  ? "AI is replying — click to take over (human)"
+                  : "A human owns this thread — click to hand back to AI"
+              }
+              className={cn(
+                "inline-flex h-7 items-center justify-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors disabled:opacity-60",
+                effectiveHandler === "ai"
+                  ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
+                  : "border-amber-500/30 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
+              )}
+            >
+              {effectiveHandler === "ai" ? (
+                <Bot className="h-3.5 w-3.5" />
+              ) : (
+                <UserRound className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden sm:inline">
+                {effectiveHandler === "ai" ? "AI" : "Human"}
+              </span>
             </button>
           )}
 

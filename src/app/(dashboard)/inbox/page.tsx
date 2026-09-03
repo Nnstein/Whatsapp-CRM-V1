@@ -520,6 +520,24 @@ export default function InboxPage() {
     [activeConversation]
   );
 
+  const handleHandlingModeChange = useCallback(
+    (conversationId: string, mode: "ai" | "human") => {
+      // Switching back to 'ai' also clears any assignment (the API does the
+      // same) so the bot actually resumes instead of staying stood down.
+      const patch =
+        mode === "ai"
+          ? { handling_mode: "ai" as const, assigned_agent_id: undefined }
+          : { handling_mode: "human" as const };
+      setConversations((prev) =>
+        prev.map((c) => (c.id === conversationId ? { ...c, ...patch } : c))
+      );
+      if (activeConversation?.id === conversationId) {
+        setActiveConversation((prev) => (prev ? { ...prev, ...patch } : prev));
+      }
+    },
+    [activeConversation]
+  );
+
   const handleAssignChange = useCallback(
     (conversationId: string, assignedAgentId: string | null) => {
       setConversations((prev) =>
@@ -604,6 +622,7 @@ export default function InboxPage() {
             onUpdateMessage={handleUpdateMessage}
             onStatusChange={handleStatusChange}
             onAssignChange={handleAssignChange}
+            onHandlingModeChange={handleHandlingModeChange}
             onBack={handleCloseConversation}
             resyncToken={resyncToken}
             onRefresh={handleManualRefresh}

@@ -44,7 +44,7 @@ export interface CartPanelProps {
 }
 
 export function CartPanel({ contactId, conversationId }: CartPanelProps) {
-  const { accountRole } = useAuth();
+  const { accountRole, defaultCurrency } = useAuth();
   const isAdmin = accountRole === "owner" || accountRole === "admin";
 
   const [cart, setCart] = useState<CartData | null>(null);
@@ -396,7 +396,7 @@ export function CartPanel({ contactId, conversationId }: CartPanelProps) {
                 >
                   {catalogProducts.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name} ({p.currency} {p.price.toFixed(2)})
+                      {p.name} ({defaultCurrency} {p.price.toFixed(2)})
                     </option>
                   ))}
                 </select>
