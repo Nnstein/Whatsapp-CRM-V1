@@ -16,11 +16,14 @@ import {
   StickyNote,
   Plus,
   Sparkles,
+  ArrowDownToLine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
+import { toast } from "sonner";
 
+import { ImportChatModal } from "@/components/chat-import/import-chat-modal";
 interface ContactSidebarProps {
   contact: Contact | null;
 }
@@ -30,6 +33,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [copied, setCopied] = useState(false);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
+  const [importChatOpen, setImportChatOpen] = useState(false);
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
@@ -173,6 +177,17 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
               )}
             </button>
 
+            {/* Import Chat History */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full justify-start gap-2 text-xs text-muted-foreground border-dashed border-border hover:border-primary/40 hover:text-primary hover:bg-primary/5"
+              onClick={() => setImportChatOpen(true)}
+            >
+              <ArrowDownToLine className="h-3.5 w-3.5" />
+              Import Chat History
+            </Button>
+
             {contact.email && (
               <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground">
                 <Mail className="h-4 w-4 text-muted-foreground" />
@@ -301,6 +316,19 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           </div>
         </div>
       </ScrollArea>
+
+      {/* Import Chat Modal — pinned to this conversation's contact */}
+      {contact && (
+        <ImportChatModal
+          open={importChatOpen}
+          onOpenChange={setImportChatOpen}
+          contact={{ id: contact.id, name: contact.name, phone: contact.phone }}
+          onImported={(conversationId, count) => {
+            setImportChatOpen(false);
+            toast.success(`${count.toLocaleString()} messages imported successfully!`);
+          }}
+        />
+      )}
     </div>
   );
 }

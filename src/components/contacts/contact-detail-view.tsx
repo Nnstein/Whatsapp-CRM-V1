@@ -38,7 +38,9 @@ import {
   X,
   DollarSign,
   LayoutTemplate,
+  ArrowDownToLine,
 } from 'lucide-react';
+import { ImportChatModal } from '@/components/chat-import/import-chat-modal';
 
 interface ContactDetailViewProps {
   open: boolean;
@@ -65,6 +67,7 @@ export function ContactDetailView({
   // find-or-creates the conversation, so no inbound message is required.
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [sendingTemplate, setSendingTemplate] = useState(false);
+  const [importChatOpen, setImportChatOpen] = useState(false);
   // Available WhatsApp numbers for the current user — loaded once when the
   // panel opens. Admin/owner see all numbers (API returns all); agents see
   // only their assigned number(s).
@@ -459,7 +462,7 @@ export function ContactDetailView({
                   </div>
                 </div>
               </div>
-              <div className="mt-3">
+              <div className="mt-3 flex items-center gap-2">
                 <Button
                   size="sm"
                   onClick={() => setTemplatePickerOpen(true)}
@@ -472,6 +475,15 @@ export function ContactDetailView({
                     <LayoutTemplate className="size-4" />
                   )}
                   Send template
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setImportChatOpen(true)}
+                  className="border-dashed text-muted-foreground hover:text-primary hover:border-primary/40"
+                >
+                  <ArrowDownToLine className="size-4" />
+                  Import History
                 </Button>
               </div>
             </SheetHeader>
@@ -795,6 +807,18 @@ export function ContactDetailView({
       contact={contact}
       whatsappNumbers={whatsappNumbers}
     />
+    {contact && (
+      <ImportChatModal
+        open={importChatOpen}
+        onOpenChange={setImportChatOpen}
+        contact={{ id: contact.id, name: contact.name, phone: contact.phone }}
+        onImported={(_conversationId, count) => {
+          setImportChatOpen(false);
+          toast.success(`${count.toLocaleString()} messages imported!`);
+          onUpdated();
+        }}
+      />
+    )}
     </>
   );
 }

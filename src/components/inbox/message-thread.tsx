@@ -687,6 +687,24 @@ export function MessageThread({
 
   const contactDisplayName = contact?.name || contact?.phone || "Customer";
 
+  /**
+   * The id of the first non-imported message — this is where we draw
+   * the "📜 Imported WhatsApp History" divider banner. Null means the
+   * conversation has no imported messages, or all messages are imported.
+   */
+  const importBoundaryId = useMemo(() => {
+    let seenImported = false;
+    for (const m of messages) {
+      if (m.source === 'imported_whatsapp') {
+        seenImported = true;
+      } else if (seenImported) {
+        // First live message after the imported block
+        return m.id;
+      }
+    }
+    return null;
+  }, [messages]);
+
   // Author label for a quoted message: "You" when we sent the parent,
   // contact name when the customer sent it.
   const authorLabelFor = useCallback(
@@ -1056,22 +1074,34 @@ export function MessageThread({
                   };
 
                   return (
-                    <MessageActions
-                      key={msg.id}
-                      message={msg}
-                      onReply={() => handleStartReply(msg)}
-                      onReact={(emoji) => {
-                        if (emoji) void postReaction(msg.id, emoji);
-                      }}
-                    >
-                      <MessageBubble
+                    <>
+                      {/* Imported history / live divider */}
+                      {msg.id === importBoundaryId && (
+                        <div className="flex items-center gap-2 py-3 select-none" aria-hidden="true">
+                          <div className="flex-1 border-t border-primary/20" />
+                          <span className="flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-3 py-1 text-[11px] text-primary/80 font-medium whitespace-nowrap">
+                            📜 Imported WhatsApp History
+                          </span>
+                          <div className="flex-1 border-t border-primary/20" />
+                        </div>
+                      )}
+                      <MessageActions
+                        key={msg.id}
                         message={msg}
-                        reply={reply}
-                        reactions={msgReactions}
-                        currentUserId={user?.id}
-                        onToggleReaction={handlePillToggle}
-                      />
-                    </MessageActions>
+                        onReply={() => handleStartReply(msg)}
+                        onReact={(emoji) => {
+                          if (emoji) void postReaction(msg.id, emoji);
+                        }}
+                      >
+                        <MessageBubble
+                          message={msg}
+                          reply={reply}
+                          reactions={msgReactions}
+                          currentUserId={user?.id}
+                          onToggleReaction={handlePillToggle}
+                        />
+                      </MessageActions>
+                    </>
                   );
                 })}
               </div>
