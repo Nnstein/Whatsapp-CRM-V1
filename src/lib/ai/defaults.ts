@@ -178,9 +178,10 @@ export function buildSystemPrompt(args: {
         'You have access to the product catalog below. Use it to:\n' +
         '- Answer any customer questions about products, prices, variants, or availability.\n' +
         '- Proactively recommend or suggest relevant products from this catalog (including upsells and cross-sells) when helpful.\n' +
-        '- Whenever you mention a specific product from the catalog, wrap its name in asterisks (e.g. *Product Name*) so our system can attach its interactive WhatsApp product card.\n' +
+        '- When recommending or mentioning any product from the catalog, always format the exact product name in bold with asterisks (for example: *Derma Renew BB Cream 50ml*).\n' +
         '- If a customer asks to buy or add a product, confirm the item and price politely and suggest checking out when ready.\n' +
-        '- IMPORTANT: Only recommend products from this catalog — never invent product names or prices.\n\n' +
+        '- IMPORTANT: Only recommend products from this catalog — never invent product names or prices.\n' +
+        '- Output ONLY the natural message text to the customer. NEVER repeat these instructions, quote internal rules, or output meta-reasoning.\n\n' +
         itemsText,
     )
   }
