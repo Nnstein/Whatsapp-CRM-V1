@@ -31,6 +31,40 @@ export interface PaymentLinkResult {
   invoiceRowId: string;
 }
 
+const DEFAULT_APP_URL = 'https://whatsapp-crm-v1.onrender.com';
+
+/**
+ * Normalize the public app base URL used in gateway callback/error URLs.
+ *
+ * Payment gateways (MyFatoorah at least) hard-validate these with a strict
+ * URL check and reject the whole SendPayment call when the value is
+ * malformed — e.g. an APP_URL env var set to `localhost:3000` or
+ * `myapp.onrender.com` without a scheme. So: trim, strip trailing slashes,
+ * prepend https:// when the scheme is missing, validate with URL(), and
+ * fall back to the deployment default with a loud warning when it's junk.
+ */
+export function normalizeAppUrl(raw?: string | null): string {
+  let candidate = (raw ?? '').trim().replace(/\/+$/, '');
+  // Prepend https:// only when there's NO scheme at all — a non-http(s)
+  // scheme like ftp:// must fail validation below, not get double-schemed.
+  if (candidate && !/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)) {
+    candidate = `https://${candidate}`;
+  }
+  if (candidate) {
+    try {
+      const u = new URL(candidate);
+      if (u.protocol === 'http:' || u.protocol === 'https:') return u.origin;
+    } catch {
+      // fall through to default
+    }
+    console.warn(
+      `[payment-link] APP_URL '${raw}' is not a valid URL — falling back to ${DEFAULT_APP_URL}. ` +
+        `Set APP_URL to a full URL like https://your-domain.com`,
+    );
+  }
+  return DEFAULT_APP_URL;
+}
+
 /**
  * Find the active payment connection for this account, generate a payment
  * link, persist a pending invoice row, and return the link URL.
@@ -51,11 +85,7 @@ export async function getPaymentLink(
   conversationId: string | null,
   appUrl?: string,
 ): Promise<PaymentLinkResult | null> {
-  const resolvedAppUrl = (
-    appUrl ||
-    process.env.APP_URL ||
-    'https://whatsapp-crm-v1.onrender.com'
-  ).replace(/\/$/, '');
+  const resolvedAppUrl = normalizeAppUrl(appUrl || process.env.APP_URL);
 
   try {
     const { data: connections } = await db
