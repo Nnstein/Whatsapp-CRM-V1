@@ -165,6 +165,13 @@ export interface Conversation {
   whatsapp_config_id: string;
   status: ConversationStatus;
   assigned_agent_id?: string;
+  /**
+   * Who is expected to reply: 'ai' (default, the auto-reply bot) or
+   * 'human' (handed off / taken over). Migration 046. The effective
+   * handler is 'human' when handling_mode is 'human' OR an agent is
+   * assigned — assignment always wins.
+   */
+  handling_mode?: 'ai' | 'human';
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;

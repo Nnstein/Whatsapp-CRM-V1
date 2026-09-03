@@ -169,6 +169,30 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     expect(h.engineSendText).not.toHaveBeenCalled()
   })
 
+  it('skips when handling_mode is human (migration 046)', async () => {
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: false,
+      handling_mode: 'human',
+      ai_reply_count: 0,
+    }
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.engineSendText).not.toHaveBeenCalled()
+  })
+
+  it('ignores the legacy disabled flag when handling_mode is ai', async () => {
+    // Stale ai_autoreply_disabled rows must not silence the bot once a
+    // human flips the thread back to AI via the Inbox toggle.
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: true,
+      handling_mode: 'ai',
+      ai_reply_count: 0,
+    }
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.engineSendText).toHaveBeenCalled()
+  })
+
   it('skips when the per-conversation cap is reached', async () => {
     h.state.conv = {
       assigned_agent_id: null,
@@ -192,7 +216,11 @@ describe('dispatchInboundToAiReply — handoff', () => {
     h.generateReply.mockResolvedValue({ text: '', handoff: true })
     await dispatchInboundToAiReply(ARGS)
     expect(h.engineSendText).not.toHaveBeenCalled()
-    expect(h.state.updatePayload).toEqual({ status: 'pending', ai_autoreply_disabled: true })
+    expect(h.state.updatePayload).toEqual({
+      status: 'pending',
+      handling_mode: 'human',
+      ai_autoreply_disabled: true,
+    })
     expect(h.state.rpcCalls).toHaveLength(1)
     expect(h.state.rpcCalls[0].name).toBe('create_handoff_notification')
   })
