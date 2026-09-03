@@ -239,6 +239,14 @@ export interface Message {
    * cue (renders with a "↩ button reply" affordance).
    */
   interactive_reply_id?: string;
+  /**
+   * Provenance of this message. Added by migration 045_chat_import.
+   * 'api'               — received/sent via WhatsApp Cloud API (default for all messages pre-migration).
+   * 'manual'            — composed and sent manually by an agent in the CRM.
+   * 'imported_whatsapp' — bulk-imported from a WhatsApp phone export (.txt file).
+   * null / undefined    — legacy rows predating the column; treated as 'api'.
+   */
+  source?: 'api' | 'manual' | 'imported_whatsapp' | null;
 }
 
 export type ReactionActor = 'customer' | 'agent';
