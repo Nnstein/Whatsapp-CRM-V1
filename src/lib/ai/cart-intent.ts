@@ -56,6 +56,8 @@ const BROWSE_PATTERNS = [
 const ADD_TO_CART_PATTERNS = [
   // English
   /\b(add|put)\s+(that|this|it|one|to\s+(my\s+)?cart)\b/i,
+  /\badd\s+.+\s+to\s+(my\s+)?cart\b/i,          // "add the bb cream to my cart"
+  /^(please\s+)?add\s+(the\s+|a\s+|an\s+)?\S/i, // message starting with "add …"
   /\bi\s+want\s+(that|this|one|the)\b/i,
   /\bi('ll)?\s+take\s+(that|this|one|the)\b/i,
   /\border\s+(that|this|one)\b/i,
@@ -164,11 +166,21 @@ const STRIP_PREFIXES = [
  * Try to extract the product hint from the message by stripping intent
  * prefixes. Falls back to the full message when nothing is stripped.
  */
+/** Trailing intent words that pollute the product hint. */
+const STRIP_SUFFIXES = [
+  /\s+to\s+(my\s+)?cart\b.*$/i,                 // "… to my cart"
+  /\s+and\s+(check\s*out|checkout|pay)\b.*$/i,  // "… and checkout"
+  /^(check\s*out|checkout|pay)\s+/i,            // "checkout the …" (leading)
+];
+
 export function extractProductHint(text: string): string {
   let s = text.trim();
   for (const p of STRIP_PREFIXES) {
     const stripped = s.replace(p, '').trim();
     if (stripped && stripped !== s) { s = stripped; break; }
+  }
+  for (const p of STRIP_SUFFIXES) {
+    s = s.replace(p, '').trim();
   }
   return s;
 }
@@ -453,7 +465,12 @@ async function handleBrowseCatalog(db: SupabaseClient, args: CartIntentArgs) {
     .eq('id', args.conversationId);
 }
 
-async function handleAddToCart(db: SupabaseClient, args: CartIntentArgs) {
+/**
+ * Returns true when an item was actually added to the cart, false when a
+ * clarification/failure message was sent instead (callers can then decide
+ * whether to continue a compound flow like "add X and checkout").
+ */
+async function handleAddToCart(db: SupabaseClient, args: CartIntentArgs): Promise<boolean> {
   // Load all active products for this account (up to 50)
   const { data: rawProducts } = await db
     .from('catalog_products')
@@ -475,7 +492,7 @@ async function handleAddToCart(db: SupabaseClient, args: CartIntentArgs) {
     await send(db, args,
       "We don't have any products available right now. Please contact us directly! 🙏"
     );
-    return;
+    return false;
   }
 
   // Fetch the last-shown product list from this conversation (for number resolution)
@@ -503,7 +520,7 @@ async function handleAddToCart(db: SupabaseClient, args: CartIntentArgs) {
     await send(db, args,
       `I didn't quite catch which product you'd like! 🤔\n\nHere are our top products:\n${top5}\n\nReply with the product name or number to add it to your cart!`
     );
-    return;
+    return false;
   }
 
   const { product, variantHint } = resolved;
@@ -516,7 +533,7 @@ async function handleAddToCart(db: SupabaseClient, args: CartIntentArgs) {
     await send(db, args,
       `Which variant of *${product.name}* would you like? 🎨\n\n${variantList}\n\nReply with the variant name to add it to your cart!`
     );
-    return;
+    return false;
   }
 
   // Fetch workspace currency
@@ -554,7 +571,7 @@ async function handleAddToCart(db: SupabaseClient, args: CartIntentArgs) {
     if (cartErr || !newCart) {
       console.error('[cart-intent] failed to create cart:', cartErr);
       await send(db, args, "Sorry, I couldn't add that to your cart right now. Please try again! 🙏");
-      return;
+      return false;
     }
     cartId = newCart.id;
   }
@@ -589,7 +606,7 @@ async function handleAddToCart(db: SupabaseClient, args: CartIntentArgs) {
     if (itemErr) {
       console.error('[cart-intent] failed to insert cart item:', itemErr);
       await send(db, args, "Sorry, I couldn't add that to your cart. Please try again! 🙏");
-      return;
+      return false;
     }
   }
 
@@ -601,6 +618,7 @@ async function handleAddToCart(db: SupabaseClient, args: CartIntentArgs) {
   await send(db, args,
     `✅ Added *${product.name}${variantSuffix}*${qtyLabel} to your cart! (${subtotal})\n\nReply *"my cart"* to review your order or *"checkout"* when ready to pay. 🛒`
   );
+  return true;
 }
 
 async function handleViewCart(db: SupabaseClient, args: CartIntentArgs) {
